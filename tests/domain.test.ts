@@ -30,7 +30,7 @@ test('pièces : regroupement, exemplaires, état ouvert / aplati, couleur', () =
 test('la couleur des yeux ou du nez ne déteint pas sur les pièces', () => {
   const p = normalizePattern({ yarn: 'beige', text: 'CORPS\nR1 : 6 ms (6)\nR2 : 6 ms\nBroder le nez noir et les yeux noirs.' })
   expect(buildPieces(p)[0].color).toBe('#d9c3a0')
-  expect(findDetails(p.text)).toEqual({ eyes: { color: '#141416' }, nose: { color: '#2a2a2d' } })
+  expect(findDetails(p.text)).toMatchObject({ eyes: { color: '#141416' }, nose: { color: '#2a2a2d' } })
 })
 
 test('queue de la souris', () => {

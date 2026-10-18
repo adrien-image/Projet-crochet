@@ -3,6 +3,7 @@ import { FileSearch, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
+import { guessPatternInfo } from '../../domain/patternInfo'
 import { t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { photoFields, photosOf, type PhotoRef } from './actions'
@@ -66,6 +67,11 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
         return
       }
       setText((cur) => (replace || !cur.trim() ? extracted : `${cur}\n\n${extracted}`))
+      // nom, crochet et fil lus dans le PDF, seulement pour les champs encore vides
+      const info = guessPatternInfo(extracted)
+      if (info.name) setName((cur) => cur.trim() ? cur : info.name!)
+      if (info.hook) setHook((cur) => cur.trim() ? cur : info.hook!)
+      if (info.yarn) setYarn((cur) => cur.trim() ? cur : info.yarn!)
       const n = parsePattern(extracted).length
       setInfo(n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
         : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).'))

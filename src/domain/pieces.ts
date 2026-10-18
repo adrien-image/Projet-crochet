@@ -1,6 +1,6 @@
 // Pièces d'un patron (regroupement des rangs), partagées par le rendu tissu 2D et l'aperçu 3D.
 import type { Pattern, Round } from './types'
-import { colorLegend, headingColor, parseCords, sectionCopies, splitSections } from './parser'
+import { colorLegend, headingColor, looksLikeRound, parseCords, sectionCopies, splitSections } from './parser'
 import { DEFAULT_YARN, findYarnColor } from './colors'
 import { roundsOf } from './progress'
 
@@ -35,11 +35,57 @@ export interface CordPiece {
 export interface Details {
   eyes: { color: string } | null
   nose: { color: string } | null
+  /** rangs cités dans les consignes d'assemblage (« Pin the front legs between rows 21 and 22 ») */
+  rows: RowHint[]
+}
+
+/** Mention d'un rang hors des rangs eux-mêmes : texte qui la précède sur la ligne, rang (milieu d'un intervalle). */
+export interface RowHint { before: string, row: number }
+
+const ROW_REF_RE = /\b(?:rows?|rounds?|rnds?|rangs?|tours?|r)\s*(\d{1,3})(?:\s*(?:and|to|-|–|à|a|et|e|&)\s*(?:r\s*)?(\d{1,3}))?/gi
+
+function rowHints(text: string): RowHint[] {
+  const hints: RowHint[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || looksLikeRound(line)) continue
+    let last = 0
+    let subject = ''
+    for (const m of line.matchAll(ROW_REF_RE)) {
+      const from = parseInt(m[1], 10)
+      const to = m[2] != null ? parseInt(m[2], 10) : from
+      // « rows 5 to 6 - rows 10 to 11 » : la 2e mention reprend le sujet de la précédente
+      const before = line.slice(last, m.index).toLowerCase()
+      if (/\p{L}{3,}/u.test(before)) subject = before
+      if (to >= from && to - from < 20) hints.push({ before: subject, row: (from + to) / 2 })
+      last = m.index + m[0].length
+    }
+  }
+  return hints
+}
+
+/**
+ * Rangs indiqués pour une pièce (ou les yeux), dans l'ordre du texte : mentions précédées du premier
+ * mot de son nom (« front » pour « Front legs ») ; s'il en faut `want` (un par exemplaire) et que ce
+ * mot n'en donne pas assez, les mots suivants (« spikes » pour « Back spikes »).
+ */
+export function rowsFor(label: string, hints: RowHint[], want = 1): number[] {
+  let best: number[] = []
+  for (const word of label.toLowerCase().split(/[^\p{L}]+/u).filter((w) => w.length >= 3)) {
+    const stem = word.replace(/(?:e?s|x)$/, '')
+    const re = new RegExp(`\\b${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'iu')
+    const rows = hints.filter((h) => re.test(h.before)).map((h) => h.row)
+    if (rows.length >= want) return rows
+    if (rows.length > best.length) best = rows
+  }
+  return best
 }
 
 const DETAIL = /\b(?:yeux|oeil|œil|eyes?|nez|truffe|nose|brod|embroider|bouche|mouth|joues?|cheeks?)/i
 
 // objets creux, jamais rembourrés
+const NO_STUFF = /\b(?:do\s+not|don['’]t|no)\s+stuff(?:ing)?\b|\bne\s+pas\s+(?:re)?bourrer\b|\bsans\s+(?:re)?bourr(?:er|age)\b/i
+const STUFF = /\b(?:stuff(?:ing)?|fill\s+(?:it|with)|(?:re)?bourr(?:er|ez|age))\b/i
 const CONTAINER = /\b(?:bonnet|chapeau|b[ée]ret|hat|beanie|cap|sac|bag|pochette|pouch|panier|basket|corbeille|pot|tasse|mug|cup|bol|bowl|chaussons?|slippers?|chaussettes?|socks?)\b/i
 
 export function shortName(section: string | null): string {
@@ -84,8 +130,11 @@ export function buildPieces(pattern: Pattern): Piece[] {
     const own = p.sections.map((s) => `${s}\n${texts.get(s) ?? ''}`).join('\n')
     // la couleur d'une pièce ne se lit pas dans les phrases sur les yeux, le nez ou les broderies
     const ownYarn = own.split(/[.\n!;]/).filter((x) => !DETAIL.test(x)).join('\n')
-    p.flattened = /\b(?:[àa]\s+plat|aplatir|aplatie?|flatten(?:ed)?|sew\s+flat|close\s+flat)\b/i.test(own)
-    p.stuffed = !p.flat && !p.flattened && !CONTAINER.test(`${p.label} ${pattern.name}`)
+    // « ne pas bourrer » / « bourrer » écrits dans la pièce priment sur les indices de forme
+    const noStuff = NO_STUFF.test(own)
+    const stuffs = !noStuff && STUFF.test(own)
+    p.flattened = !stuffs && /\b(?:[àa]\s+plat|aplatir|aplatie?|flatten(?:ed)?|sew\s+flat|close\s+flat)\b/i.test(own)
+    p.stuffed = !p.flat && !noStuff && !p.flattened && (stuffs || !CONTAINER.test(`${p.label} ${pattern.name}`))
     // une pièce qui change de fil : les couleurs citées dans ses rangs ne sont pas celle de départ
     const changes = p.rounds.some((r) => r.color)
     p.color = pattern.pieceColors?.[p.label] ?? headingColor(p.sections.join(' '), legend) ?? (changes ? null : findYarnColor(ownYarn)) ?? fallback
@@ -113,5 +162,6 @@ export function findDetails(text: string): Details {
   return {
     eyes: eyeSentence ? { color: '#141416' } : null,
     nose: noseSentence ? { color: findYarnColor(noseColor) ?? findYarnColor(noseSentence) ?? '#2a2a2d' } : null,
+    rows: rowHints(text),
   }
 }

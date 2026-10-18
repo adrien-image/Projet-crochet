@@ -4,7 +4,7 @@
 // 2. les pièces sont assemblées selon leur nom (oreilles sur la tête, jambes dessous, queue derrière…),
 //    ou présentées côte à côte.
 import type { Round, StitchType } from '../domain/types'
-import type { CordPiece, Details, Piece } from '../domain/pieces'
+import { rowsFor, type CordPiece, type Details, type Piece } from '../domain/pieces'
 
 export type Vec3 = [number, number, number]
 
@@ -157,12 +157,13 @@ const KIND_RULES: [PieceKind, RegExp][] = [
   ['leg', /\b(?:jambes?|legs?|pieds?|feet|foot|pattes?|paws?)\b/i],
   ['tail', /\b(?:queue|tail)\b/i],
   ['wing', /\b(?:ailes?|wings?)\b/i],
+  ['spike', /\b(?:spikes?|picots?|pics?|piquants?|cr[êe]tes?|crests?|[ée]cailles?|scales?|plaques?\s+dorsales?|dorsal\s+plates?)\b/i],
   ['head', /\b(?:t[êe]tes?|heads?)\b/i],
   ['body', /\b(?:corps|body|torse|torso)\b/i],
   ['muzzle', /\b(?:museau|snout|muzzle|nez|nose|bec|beak)\b/i],
 ]
 const HAT = /\b(?:bonnet|chapeau|b[ée]ret|hat|beanie|cap|cagoule|balaclava)\b/i
-type PieceKind = 'ear' | 'arm' | 'leg' | 'tail' | 'wing' | 'head' | 'body' | 'muzzle' | 'other'
+type PieceKind = 'ear' | 'arm' | 'leg' | 'tail' | 'wing' | 'spike' | 'head' | 'body' | 'muzzle' | 'other'
 
 export function pieceKind(label: string): PieceKind {
   // pour « MUSEAU + CORPS », le corps l'emporte
@@ -408,6 +409,8 @@ const ASSEMBLY: Record<'forward' | 'upright', Partial<Record<PieceKind, Spot>>> 
     arm: { t: 0.35, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.4 },
     leg: { t: 0.62, angles: [Math.PI * 0.78, -Math.PI * 0.78], sink: 0.4 },
     wing: { t: 0.5, angles: [Math.PI / 2, -Math.PI / 2], sink: 0.3 },
+    // le long du dos (dessus), répartis ensuite entre toutes les pièces de ce type
+    spike: { t: 0.55, angles: [0], sink: 0.25 },
   },
   upright: {
     ear: { t: 0.9, angles: [Math.PI * 0.42, -Math.PI * 0.42], sink: 0.5, onHead: true },
@@ -415,6 +418,7 @@ const ASSEMBLY: Record<'forward' | 'upright', Partial<Record<PieceKind, Spot>>> 
     leg: { t: 0.06, angles: [Math.PI * 0.18, -Math.PI * 0.18], sink: 0.3 },
     tail: { t: 0.2, angles: [Math.PI], sink: 0.3 },
     wing: { t: 0.6, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.3 },
+    spike: { t: 0.5, angles: [Math.PI], sink: 0.25 },
     muzzle: { t: 0.45, angles: [0], sink: 0.5, onHead: true },
   },
 }
@@ -516,8 +520,23 @@ function assemble(
   }
   const faceFrame = frame
 
+  // rang cité dans les consignes (« between rows 21 and 22 ») → position le long de la pièce principale
+  const rowT = (row: number): number | null => {
+    const base = Math.floor(row)
+    const i = main.piece.rounds.findIndex((r) => r.number === base)
+    const a = i < 0 ? undefined : main.b.rings.find((g) => g.row === i)
+    if (!a) return null
+    const b = main.b.rings.find((g) => g.row === i + 1) ?? a
+    const y = a.y + (b.y - a.y) * (row - base)
+    return Math.min(0.98, Math.max(0.02, (y - main.b.rings[0].y) / (main.b.length || 1)))
+  }
+  const hintedT = (label: string, want = 1) => rowsFor(label, details.rows, want).map(rowT).filter((t): t is number => t != null)
+
   // positions des pièces annexes, selon le type et l'orientation
   const spots = ASSEMBLY[mode === 'forward' ? 'forward' : 'upright']
+  // piquants, écailles : sans indication de rang, répartis régulièrement le long du dos
+  const spikeTotal = lathes.filter((i) => !used.has(i.b) && kinds.get(i.b) === 'spike').reduce((n, i) => n + i.piece.copies, 0)
+  let spikeIndex = 0
 
   for (const i of lathes) {
     if (used.has(i.b)) continue
@@ -525,11 +544,23 @@ function assemble(
     const spot = spots[kind]
     if (!spot) continue
     const f = spot.onHead ? faceFrame : mainFrame
+    // un rang par exemplaire pour les piquants, un seul pour une paire symétrique
+    const hinted = f === mainFrame ? hintedT(i.piece.label, kind === 'spike' ? i.piece.copies : 1) : []
+    if (kind === 'spike') {
+      for (let c = 0; c < i.piece.copies; c++) {
+        const t = hinted[c] ?? 0.3 + 0.45 * (spikeTotal > 1 ? spikeIndex / (spikeTotal - 1) : 0.5)
+        spikeIndex++
+        sew(i.b, f.point(t, spot.angles[0]), f.normal(t, spot.angles[0]), spot.sink)
+      }
+      used.add(i.b)
+      continue
+    }
+    const t = hinted[0] ?? spot.t
     for (let c = 0; c < Math.min(i.piece.copies, spot.angles.length); c++) {
       const angle = spot.angles[c]
-      let n = f.normal(spot.t, angle)
+      let n = f.normal(t, angle)
       if (kind === 'leg' && mode === 'up') n = [n[0] * 0.5, -1, n[2] * 0.5]
-      sew(i.b, f.point(spot.t, angle), n, spot.sink)
+      sew(i.b, f.point(t, angle), n, spot.sink)
     }
     used.add(i.b)
   }
@@ -565,7 +596,8 @@ function assemble(
 
   // yeux et nez
   if (details.eyes) {
-    const t = mode === 'forward' ? 0.2 : 0.58
+    const hinted = faceFrame === mainFrame ? [...hintedT('eyes'), ...hintedT('yeux')][0] : undefined
+    const t = hinted ?? (mode === 'forward' ? 0.2 : 0.58)
     const spread = mode === 'forward' ? Math.PI * 0.32 : Math.PI * 0.2
     for (const a of [spread, -spread]) {
       const p = faceFrame.point(t, a, -0.15)

@@ -22,7 +22,9 @@ fonctionne hors connexion.
   curseur « construction » pour voir la pièce après n'importe quel rang, couleurs du fil
   modifiables, **changements de couleur par rang**, **placement manuel** des pièces (on touche le
   modèle à l'endroit où coudre), contrôle au clavier, image PNG
-- **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande)
+- **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande),
+  sans les en-têtes / pieds de page répétés ni les légendes de photos en colonne ; nom, crochet et fil
+  pré-remplis
 - **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
   ou fichier `.crochet.json`
 - **Dupliquer** un patron pour le refaire (de zéro) ou garder une version en cours (avec la progression)
@@ -53,12 +55,19 @@ Chaîner 30 ml.
 Broder le nez rose, coudre deux yeux noirs.
 ```
 
-- Préfixes : `R`, `Rang`, `Tour`, `Rnd`, `Round`, `Row` ; plages `R4-R6`, `Rangs 4 à 6`
+- Préfixes : `R`, `Rang`, `Tour`, `Rnd`, `Round`, `Row` ; plages `R4-R6`, `Rangs 4 à 6` ; ou rangs
+  numérotés sans préfixe, courants dans les PDF : `1 – 6 sc into a magic ring (6)`, `4 to 7 – 18 sc`,
+  `18 and 19 – 18 sc (2 rows) – stuff the head`
+- Titres de pièce en casse mixte juste avant un rang 1 (`Front legs – make 2`, `Body: start at the snout`) ;
+  `make 2`, `(x2)` donnent le nombre d'exemplaires
+- Répétition implicite : `3 – 1 sc, 1 inc (18)` fait le tour quand le compte annoncé le confirme
 - Notations : française (`ms`, `db`, `br`, `dbr`, `mc`, `ml`, `aug`, `dim`), US, UK et XVA
 - Répétitions `*…* x6`, `(…) x6`, `[…] x6`, `rep from * 5 more times`, « dans chaque maille », « around »
 - Comptes `(18)` vérifiés ; multi-tailles `6 (8, 10) sc` ; rangs aller-retour (`Row`, « tourner »)
 - Pour la 3D : « (x2) » duplique une pièce, « suite du … » prolonge la précédente, « à plat » aplatit,
-  la couleur du fil est lue dans le texte, les noms de pièces guident l'assemblage
+  la couleur du fil est lue dans le texte, les noms de pièces guident l'assemblage, et les rangs cités
+  dans les consignes (« Pin the front legs between rows 21 and 22 », « eyes between rows 9 and 10 »)
+  placent les pièces et les yeux ; piquants et écailles se posent le long du dos
 - Changements de couleur : légende (`Couleur A : rose`, `MC: grey`), mention dans le rang
   (`R5 : 18 ms en rose`, `Rnd 3: sc around with color A`, `(rouge)`) ou ligne « Changer pour le fil blanc. »
 
