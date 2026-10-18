@@ -24,6 +24,8 @@ export interface Round {
   prevCount: number | null
   /** compte annoncé « (N) » */
   expected: number | null
+  /** couleur de fil du rang (#rrggbb) si le patron en change, sinon null (couleur de la pièce) */
+  color: string | null
   /** compte calculé = compte annoncé (ou rien d'annoncé) */
   valid: boolean
   /** mailles consommées = rang précédent de la pièce (null si inconnu) */
@@ -34,6 +36,25 @@ export interface Round {
 export interface Cord {
   section: string | null
   length: number
+}
+
+export interface RoundNote {
+  text: string
+  /** photo (IndexedDB) */
+  photoId: string | null
+  /** miniature (data:) */
+  photoThumb: string | null
+}
+
+/** Pièce placée à la main sur l'aperçu 3D (coordonnées du modèle assemblé). */
+export interface Placement {
+  point: [number, number, number]
+  normal: [number, number, number]
+}
+
+export interface WorkSession {
+  start: string
+  seconds: number
 }
 
 export interface ChecklistItem {
@@ -65,6 +86,16 @@ export interface Pattern {
   stitchCounter: number
   /** couleurs choisies par pièce (libellé de pièce → #rrggbb) */
   pieceColors: Record<string, string>
+  /** notes et photos par rang (clé de rang → note) */
+  roundNotes: Record<string, RoundNote>
+  /** placements manuels en 3D (« libellé#exemplaire » → point d'attache) */
+  placements: Record<string, Placement>
+  /** temps passé (secondes), hors séance en cours */
+  timeSpent: number
+  /** début de la séance en cours (chronomètre lancé), ou null */
+  timerStartedAt: string | null
+  /** dernières séances de travail */
+  sessions: WorkSession[]
   /** image (IndexedDB) */
   imageId: string | null
   /** miniature JPEG (data:) pour la grille */

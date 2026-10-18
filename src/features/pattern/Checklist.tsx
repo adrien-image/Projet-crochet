@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowDown, ArrowUp, Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ChecklistItem } from '../../domain/types'
 import { uid } from '../../storage/util'
+import { t } from '../../i18n'
 
 type Update = (fn: (list: ChecklistItem[]) => ChecklistItem[]) => void
 
@@ -38,7 +39,7 @@ export function Checklist({ items, onChange }: { items: ChecklistItem[], onChang
             <li key={item.id} className={`check-item ${item.done ? 'done' : ''}`}>
               {editing?.id === item.id ? (
                 <form className="check-edit" onSubmit={(e) => { e.preventDefault(); saveEdit() }}>
-                  <input className="input" value={editing.text} autoFocus aria-label="Modifier l'étape"
+                  <input className="input" value={editing.text} autoFocus aria-label={t("Modifier l'étape")}
                     onChange={(e) => setEditing({ ...editing, text: e.target.value })}
                     onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) } }}
                     onBlur={saveEdit} />
@@ -52,10 +53,10 @@ export function Checklist({ items, onChange }: { items: ChecklistItem[], onChang
                 </label>
               )}
               <div className="check-actions">
-                <button type="button" className="icon-btn ghost sm" aria-label="Monter" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button>
-                <button type="button" className="icon-btn ghost sm" aria-label="Descendre" disabled={index === items.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button>
-                <button type="button" className="icon-btn ghost sm" aria-label={`Modifier l'étape ${item.text}`} onClick={() => setEditing({ id: item.id, text: item.text })}><Pencil size={15} /></button>
-                <button type="button" className="icon-btn ghost sm danger" aria-label={`Supprimer l'étape ${item.text}`}
+                <button type="button" className="icon-btn ghost sm" aria-label={t('Monter')} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button>
+                <button type="button" className="icon-btn ghost sm" aria-label={t('Descendre')} disabled={index === items.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button>
+                <button type="button" className="icon-btn ghost sm" aria-label={t('Modifier l\'étape {s}', { s: item.text })} onClick={() => setEditing({ id: item.id, text: item.text })}><Pencil size={15} /></button>
+                <button type="button" className="icon-btn ghost sm danger" aria-label={t('Supprimer l\'étape {s}', { s: item.text })}
                   onClick={() => onChange((list) => list.filter((i) => i.id !== item.id))}><Trash2 size={15} /></button>
               </div>
             </li>
@@ -63,9 +64,9 @@ export function Checklist({ items, onChange }: { items: ChecklistItem[], onChang
         </ul>
       )}
       <form className="check-add" onSubmit={add}>
-        <input className="input" value={draft} placeholder="Ajouter une étape (ex. Coudre les bras)"
-          aria-label="Nouvelle étape" onChange={(e) => setDraft(e.target.value)} />
-        <button type="submit" className="btn secondary" aria-label="Ajouter l'étape"><Plus size={18} /></button>
+        <input className="input" value={draft} placeholder={t('Ajouter une étape (ex. Coudre les bras)')}
+          aria-label={t('Nouvelle étape')} onChange={(e) => setDraft(e.target.value)} />
+        <button type="submit" className="btn secondary" aria-label={t("Ajouter l'étape")}><Plus size={18} /></button>
       </form>
     </div>
   )

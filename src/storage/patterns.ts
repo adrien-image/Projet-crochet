@@ -1,6 +1,6 @@
 // Patrons : lecture / écriture dans localStorage, normalisation et migration des anciennes
 // données, sauvegarde complète (export / import JSON).
-import type { ChecklistItem, Pattern, Round } from '../domain/types'
+import type { ChecklistItem, Pattern, Placement, Round, RoundNote, WorkSession } from '../domain/types'
 import { parsePattern, parseOptions } from '../domain/parser'
 import { putAsset, getAssetDataUrl } from './assets'
 import { makeThumbnail } from './images'
@@ -37,6 +37,13 @@ export function normalizePattern(p: any): Pattern {
     roundsDone: Array.isArray(p.roundsDone) ? p.roundsDone.filter((k: unknown) => typeof k === 'string') : [],
     stitchCounter: Number.isInteger(p.stitchCounter) && p.stitchCounter > 0 ? p.stitchCounter : 0,
     pieceColors: {},
+    roundNotes: {},
+    placements: {},
+    timeSpent: Number.isFinite(p.timeSpent) && p.timeSpent > 0 ? Math.round(p.timeSpent) : 0,
+    timerStartedAt: typeof p.timerStartedAt === 'string' && !Number.isNaN(Date.parse(p.timerStartedAt)) ? p.timerStartedAt : null,
+    sessions: Array.isArray(p.sessions)
+      ? p.sessions.filter((x: WorkSession) => x && typeof x.start === 'string' && Number.isFinite(x.seconds)).slice(-60)
+      : [],
     imageId: str(p.imageId) || null,
     // seule une image JPEG/PNG en data: est acceptée comme miniature
     thumb: /^data:image\/(?:jpeg|png|webp);/.test(str(p.thumb)) ? p.thumb : null,
@@ -46,6 +53,23 @@ export function normalizePattern(p: any): Pattern {
   }
   if (p.pieceColors && typeof p.pieceColors === 'object') {
     for (const [k, v] of Object.entries(p.pieceColors)) if (typeof v === 'string' && HEX.test(v)) pattern.pieceColors[k] = v
+  }
+  if (p.roundNotes && typeof p.roundNotes === 'object') {
+    for (const [k, v] of Object.entries(p.roundNotes as Record<string, Partial<RoundNote>>)) {
+      if (!v || typeof v !== 'object') continue
+      const note: RoundNote = {
+        text: str(v.text).slice(0, 4000),
+        photoId: str(v.photoId) || null,
+        photoThumb: /^data:image\/(?:jpeg|png|webp);/.test(str(v.photoThumb)) ? str(v.photoThumb) : null,
+      }
+      if (note.text || note.photoId || note.photoThumb) pattern.roundNotes[k] = note
+    }
+  }
+  if (p.placements && typeof p.placements === 'object') {
+    const vec = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => Number.isFinite(x))
+    for (const [k, v] of Object.entries(p.placements as Record<string, Partial<Placement>>)) {
+      if (v && vec(v.point) && vec(v.normal)) pattern.placements[k] = { point: v.point, normal: v.normal }
+    }
   }
   if (str(p.image).startsWith('data:')) pattern.image = p.image
   if (str(p.fileData).startsWith('data:')) pattern.fileData = p.fileData

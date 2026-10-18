@@ -1,14 +1,16 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/index.css'
-import App from './App'
-import { ConfirmProvider } from './ui/Confirm'
+import Root from './Root'
+import { detectLang, setLang } from './i18n'
+import { loadSettings } from './storage/settings'
+
+// langue : choix enregistré, sinon celle du navigateur
+setLang(loadSettings().lang ?? detectLang())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ConfirmProvider>
-      <App />
-    </ConfirmProvider>
+    <Root />
   </StrictMode>,
 )
 

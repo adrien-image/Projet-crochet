@@ -88,3 +88,17 @@ Vue dépliée de chaque pièce : chaque rang est une rangée de vraies mailles d
 brin (ombre, corps, reflet, torsades), du premier rang en bas au dernier en haut ; les
 augmentations s'ouvrent en éventail, les diminutions se referment. Les rangs non terminés sont
 estompés. Le diagramme à symboles reste disponible.
+
+## 4. Suite : fonctionnalités et qualité
+
+- **Assemblage piloté par une table** (`ASSEMBLY` dans `render3d/model.ts`) : sorte de pièce →
+  position sur le corps, au lieu d'une cascade de conditions ; les placements manuels
+  (`pattern.placements`) passent avant l'estimation.
+- **Résilience** : chaque onglet est isolé par un `ErrorBoundary` ; la perte du contexte WebGL
+  (fréquente sur téléphone) affiche « Relancer l'aperçu » au lieu d'un canvas noir.
+- **Performance** : profils de pièces mémorisés par rang, géométries three.js réutilisées
+  d'une position du curseur « construction » à l'autre (et libérées quand elles ne servent plus).
+- **Accessibilité** : l'aperçu 3D se pilote au clavier (flèches, +/−, 0).
+- **Tests** : modules purs (fil, chronomètre, partage, fusion de synchronisation, rappel, nettoyage
+  PDF, placement, couleurs de sommets), parcours e2e de chaque fonctionnalité, comparaison d'images
+  des rendus tissu et 3D, complétude des traductions (`scripts/i18n-keys.ts`).
