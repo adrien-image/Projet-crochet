@@ -1,0 +1,81 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Pattern } from '../domain/types'
+import { loadPatterns, savePatterns, migratePatternAssets } from '../storage/patterns'
+import { collectGarbage } from '../storage/assets'
+
+const SAVE_DELAY = 400
+
+/**
+ * Liste des patrons, persistée dans localStorage. L'écriture est regroupée (un compteur de mailles
+ * tapé 30 fois ne réécrit pas 30 fois toute la bibliothèque) et forcée quand la page est masquée.
+ */
+export function usePatterns(onSaveError: () => void) {
+  const [patterns, setPatterns] = useState<Pattern[]>(loadPatterns)
+  const latest = useRef(patterns)
+  const dirty = useRef(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const migrating = useRef(new Set<string>())
+  const onError = useRef(onSaveError)
+  useEffect(() => { onError.current = onSaveError }, [onSaveError])
+
+  const flush = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    if (!dirty.current) return
+    dirty.current = false
+    if (!savePatterns(latest.current)) onError.current()
+  }, [])
+
+  const first = useRef(true)
+  useEffect(() => {
+    latest.current = patterns
+    if (first.current) {
+      first.current = false
+      return
+    }
+    dirty.current = true
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(flush, SAVE_DELAY)
+  }, [patterns, flush])
+
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      flush()
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [flush])
+
+  // anciens fichiers en data: (ou import) → IndexedDB
+  useEffect(() => {
+    for (const p of patterns) {
+      if ((!p.image && !p.fileData) || migrating.current.has(p.id)) continue
+      migrating.current.add(p.id)
+      migratePatternAssets(p).then((patch) => {
+        if (patch) setPatterns((ps) => ps.map((x) => (x.id === p.id ? { ...x, ...patch } : x)))
+      }).catch(() => {}).finally(() => migrating.current.delete(p.id))
+    }
+  }, [patterns])
+
+  // ménage des fichiers orphelins (patrons supprimés, formulaires annulés) au démarrage
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const keep = new Set<string>()
+      for (const p of latest.current) {
+        if (p.imageId) keep.add(p.imageId)
+        if (p.fileId) keep.add(p.fileId)
+      }
+      collectGarbage(keep).catch(() => {})
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [])
+
+  const update = useCallback((id: string, fn: (p: Pattern) => Pattern) => setPatterns((ps) => ps.map((p) => (
+    p.id === id ? { ...fn(p), updatedAt: new Date().toISOString() } : p
+  ))), [])
+
+  return { patterns, setPatterns, update, flush }
+}

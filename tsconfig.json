@@ -1,16 +1,20 @@
 {
-  // Vérification de types sur les modules JavaScript annotés en JSDoc (« // @ts-check »)
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "allowJs": true,
-    "checkJs": false,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
-    "strict": false,
-    "strictNullChecks": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.js"]
+  "include": ["src", "tests", "e2e", "vite.config.ts", "playwright.config.ts"]
 }

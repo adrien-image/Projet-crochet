@@ -1,0 +1,62 @@
+/* Jetons de design : couleurs, rayons, ombres, typographie. Thème clair puis sombre. */
+:root {
+  --bg: #f6f2ec;
+  --surface: #ffffff;
+  --surface-2: #fbf8f4;
+  --surface-3: #f1ebe2;
+  --ink: #2a2119;
+  --ink-2: #5a4c3f;
+  --ink-3: #8a7c6d;
+  --line: #ebe3d8;
+  --line-2: #dcd0c1;
+  --accent: #c2623a;
+  --accent-strong: #a24f2c;
+  --accent-ink: #ffffff;
+  --accent-soft: #f7e6db;
+  --success: #3f8143;
+  --success-soft: #e3f0e0;
+  --danger: #b83b2b;
+  --danger-soft: #f8e1dc;
+  --warn: #a8640b;
+
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 22px;
+  --shadow-1: 0 1px 2px rgb(42 33 25 / 6%), 0 1px 3px rgb(42 33 25 / 5%);
+  --shadow-2: 0 12px 32px -12px rgb(42 33 25 / 22%), 0 2px 6px rgb(42 33 25 / 6%);
+  --shadow-3: 0 24px 64px -16px rgb(42 33 25 / 35%);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --appbar-h: 64px;
+  --tabbar-h: 0px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17130f;
+    --surface: #221c17;
+    --surface-2: #2a231d;
+    --surface-3: #332a23;
+    --ink: #f3ebe1;
+    --ink-2: #cdbfae;
+    --ink-3: #9d8e7d;
+    --line: #3a3029;
+    --line-2: #4a3e35;
+    --accent: #e0814f;
+    --accent-strong: #f0956a;
+    --accent-ink: #1b130d;
+    --accent-soft: #3e2a1e;
+    --success: #7cbf76;
+    --success-soft: #223523;
+    --danger: #ef7e6c;
+    --danger-soft: #3d221d;
+    --warn: #e2a64a;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-2: 0 12px 32px -12px rgb(0 0 0 / 60%);
+    --shadow-3: 0 24px 64px -16px rgb(0 0 0 / 70%);
+    color-scheme: dark;
+  }
+}

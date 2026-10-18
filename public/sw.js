@@ -1,7 +1,7 @@
 // Service worker de Mon Crochet : l'application fonctionne hors connexion après une première visite.
 // - page (navigation) : réseau d'abord, copie en cache en secours
 // - fichiers du build (/assets/…, versionnés par Vite) : cache d'abord
-const CACHE = 'mon-crochet-v1'
+const CACHE = 'mon-crochet-v2'
 const SCOPE = new URL(self.registration.scope)
 const INDEX = new URL('./', SCOPE).href
 
