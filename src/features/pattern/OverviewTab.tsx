@@ -3,7 +3,8 @@ import { CircleCheck, Circle, Paperclip, ListOrdered, StickyNote, Spool, Timer }
 import type { Pattern } from '../../domain/types'
 import { roundsOf, patternProgress, percent } from '../../domain/progress'
 import { splitSections } from '../../domain/parser'
-import { estimateYarn, formatMeters, YARN_MARGIN } from '../../domain/yarn'
+import { ballsFor, estimateYarn, formatMeters, yarnMaterial, yarnWeight, YARN_MARGIN } from '../../domain/yarn'
+import { colorName } from '../../domain/colors'
 import { formatDuration, lastWeekSeconds, totalSeconds } from '../../domain/time'
 import { useAssetUrl } from '../../hooks/useAssetUrl'
 import { useTicker } from '../../hooks/useTicker'
@@ -39,21 +40,41 @@ function YarnCard({ pattern }: { pattern: Pattern }) {
   const est = useMemo(() => estimateYarn(pattern), [pattern])
   if (!est.meters) return null
   const lang = getLang()
+  const weight = yarnWeight(est.hook)
+  const material = yarnMaterial(`${pattern.yarn}\n${pattern.text}`)
+  const materials: Record<string, string> = { chenille: t('chenille / velours'), coton: t('coton'), laine: t('laine'), acrylique: t('acrylique'), mohair: t('mohair') }
   return (
-    <section className="panel compact">
-      <h3><Spool size={16} /> {t('Fil nécessaire')}</h3>
+    <section className="panel compact yarn-card">
+      <h3><Spool size={16} /> {t('Fils à prévoir')}</h3>
       <p className="yarn-total">≈ {formatMeters(est.meters, lang)} <span className="muted sm">± {Math.round(YARN_MARGIN * 100)} %</span></p>
-      {est.byColor.length > 1 && (
-        <ul className="yarn-list">
-          {est.byColor.map((c) => (
-            <li key={c.color}><span className="dot" style={{ background: c.color }} aria-hidden="true" /> {formatMeters(c.meters, lang)}</li>
-          ))}
-        </ul>
-      )}
+      <p className="yarn-type">
+        <strong>{t('Épaisseur {c}', { c: weight.category })}</strong> · {weight.names}
+        {material && <> · {materials[material]}</>}
+      </p>
+      <ul className="yarn-list">
+        {est.byColor.map((c) => {
+          const { grams } = ballsFor(c.meters, weight, material)
+          const known = colorName(c.color)
+          return (
+            <li key={c.color}>
+              <span className="dot" style={{ background: c.color }} aria-hidden="true" />
+              <span className="yarn-name">
+                <strong>{c.name ?? (known ? t(known) : t('Fil'))}</strong>
+                <span className="muted sm">{c.pieces.join(', ')}</span>
+              </span>
+              <span className="yarn-amount">
+                {formatMeters(c.meters * (1 + YARN_MARGIN), lang)}
+                <span className="muted sm">≈ {grams} g</span>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
       <p className="muted sm">
         {est.assumedHook
           ? t('Estimation pour un crochet de 4 mm (précisez la taille du crochet pour l\'affiner).')
-          : t('Estimation d\'après les mailles du patron et un crochet de {h} mm.', { h: est.hook.toLocaleString(lang) })}
+          : t('Estimation d\'après les mailles du patron et un crochet de {h} mm, marge comprise.', { h: est.hook.toLocaleString(lang) })}
+        {' '}{t('Pour un amigurumi, un fil de cette épaisseur se crochète serré avec ce crochet.')}
       </p>
     </section>
   )

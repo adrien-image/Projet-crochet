@@ -1,5 +1,6 @@
 // Nom, crochet et fil devinés à partir du texte d'un patron (PDF importé), pour pré-remplir le formulaire.
 import { looksLikeRound } from './parser'
+import { hookMm } from './yarn'
 
 export interface PatternInfo {
   name: string | null
@@ -7,13 +8,8 @@ export interface PatternInfo {
   yarn: string | null
 }
 
-const HOOK_RES = [
-  /(\d+(?:[.,]\d+)?)\s*mm\s+(?:crochet\s+)?hook/i,
-  /\bhook(?:\s+size)?(?:\s+used)?\s*:?\s*(\d+(?:[.,]\d+)?)\s*mm/i,
-  /\bcrochet(?:\s+de)?\s*:?\s*(\d+(?:[.,]\d+)?)\s*mm/i,
-  /\b(?:aiguille|crochet)\s+n°?\s*(\d+(?:[.,]\d+)?)/i,
-]
-const YARN_LINE_RE = /^(?:materials?|mat[ée]riel(?:s)?|fournitures|yarns?|fils?|laines?)\s*:\s*(.*)$/i
+// « Materials: … », « Material » seul (le fil à la ligne suivante), « Référence des pelotes »
+const YARN_LINE_RE = /^(?:materials?|mat[ée]riel(?:s)?|fournitures|yarns?(?:\s+used)?|fils?|laines?|r[ée]f[ée]rences?\s+des\s+pelotes|pelotes)\s*(?::\s*(.*)|$)/i
 const NOT_A_NAME_RE = /^(?:crochet\s+pattern|patron|pattern|free\s+pattern|amigurumi|by\b|par\b|design)/i
 
 export function guessPatternInfo(text: string): PatternInfo {
@@ -21,20 +17,18 @@ export function guessPatternInfo(text: string): PatternInfo {
   // le titre : première ligne courte qui n'est ni un rang ni une mention générique
   const name = lines.slice(0, 5).find((l) => l.length >= 3 && l.length <= 60 && !looksLikeRound(l) && !NOT_A_NAME_RE.test(l) && !/[:@]/.test(l)) ?? null
 
-  let hook: string | null = null
-  for (const re of HOOK_RES) {
-    const m = text.match(re)
-    if (m) {
-      hook = `${m[1].replace('.', ',')} mm`
-      break
-    }
-  }
+  // même lecture que l'estimation du fil ; « Crochet hook C-2/2.75 ⏎ mm » coupé en fin de ligne
+  const mm = hookMm(text.replace(/\s+/g, ' '))
+  const hook = mm ? `${String(mm).replace('.', ',')} mm` : null
 
   let yarn: string | null = null
   for (let i = 0; i < lines.length && !yarn; i++) {
     const m = lines[i].match(YARN_LINE_RE)
     if (!m) continue
-    const content = (m[1] || lines[i + 1] || '')
+    // le fil sur la ligne suivante, éventuellement coupé en deux (« Circulo yarns - Amigurumi ⏎ Pelucia »)
+    const next = lines[i + 2] && /^\p{L}[\p{L}\s'’-]{0,20}$/u.test(lines[i + 2]) ? ` ${lines[i + 2]}` : ''
+    const content = (m[1] || (lines[i + 1] ? lines[i + 1] + next : ''))
+      .replace(/\s*:\s*$/, '')
       // le crochet et le rembourrage ne font pas partie du fil
       .split(/,\s*(?=\d+(?:[.,]\d+)?\s*mm|crochet|hook|fiberfill|stuffing|rembourrage|ouate)/i)[0]
       .trim()

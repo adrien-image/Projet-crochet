@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import type { Model, Part, Vec3 } from './model'
-import { cordGeometry, latheGeometry, panelGeometry } from './geometry'
+import { cordGeometry, cushionGeometry, latheGeometry, panelGeometry } from './geometry'
 import { chainMaps, stitchMaps } from './yarnTextures'
 import { shade } from '../domain/colors'
 import { t } from '../i18n'
@@ -62,7 +62,7 @@ function geometryFor(part: Part, cache: GeoCache, next: GeoCache): THREE.BufferG
   let g = cache.get(key) ?? next.get(key)
   if (!g) {
     g = part.kind === 'lathe' ? latheGeometry(part.rings, part.color)
-      : part.kind === 'panel' ? panelGeometry(part.rows, part.color)
+      : part.kind === 'panel' ? (part.puff ? cushionGeometry(part.rows, part.puff) : panelGeometry(part.rows, part.color, part.curve))
         : part.kind === 'cord' ? cordGeometry(part.points, part.radius, part.stitches)
           : new THREE.SphereGeometry(part.radius, 32, 20)
   }
