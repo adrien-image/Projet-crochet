@@ -1,6 +1,6 @@
 // Patrons : lecture / écriture dans localStorage, normalisation et migration des anciennes
 // données, sauvegarde complète (export / import JSON).
-import type { ChecklistItem, Pattern, Placement, Round, RoundNote, WorkSession } from '../domain/types'
+import type { ChecklistItem, Pattern, PatternPhoto, Placement, Round, RoundNote, WorkSession } from '../domain/types'
 import { parsePattern, parseOptions } from '../domain/parser'
 import { putAsset, getAssetDataUrl } from './assets'
 import { makeThumbnail } from './images'
@@ -13,6 +13,10 @@ const STORAGE_KEY = 'crochet.patterns.v1'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const HEX = /^#[0-9a-f]{6}$/i
+const THUMB = /^data:image\/(?:jpeg|png|webp);/
+const IMAGE_DATA = /^data:image\/(?:jpeg|png|webp|gif);/
+/** au-delà, les miniatures pèseraient trop dans localStorage */
+export const MAX_GALLERY = 24
 
 /**
  * Complète les champs manquants (données anciennes ou importées), vérifie leurs types,
@@ -46,7 +50,8 @@ export function normalizePattern(p: any): Pattern {
       : [],
     imageId: str(p.imageId) || null,
     // seule une image JPEG/PNG en data: est acceptée comme miniature
-    thumb: /^data:image\/(?:jpeg|png|webp);/.test(str(p.thumb)) ? p.thumb : null,
+    thumb: THUMB.test(str(p.thumb)) ? p.thumb : null,
+    gallery: [],
     fileId: str(p.fileId) || null,
     fileName: str(p.fileName) || null,
     fileType: str(p.fileType) || null,
@@ -60,10 +65,20 @@ export function normalizePattern(p: any): Pattern {
       const note: RoundNote = {
         text: str(v.text).slice(0, 4000),
         photoId: str(v.photoId) || null,
-        photoThumb: /^data:image\/(?:jpeg|png|webp);/.test(str(v.photoThumb)) ? str(v.photoThumb) : null,
+        photoThumb: THUMB.test(str(v.photoThumb)) ? str(v.photoThumb) : null,
       }
-      if (note.text || note.photoId || note.photoThumb) pattern.roundNotes[k] = note
+      if (IMAGE_DATA.test(str(v.photoData))) note.photoData = str(v.photoData)
+      if (note.text || note.photoId || note.photoThumb || note.photoData) pattern.roundNotes[k] = note
     }
+  }
+  if (Array.isArray(p.gallery)) {
+    for (const raw of p.gallery as Partial<PatternPhoto>[]) {
+      if (!raw || typeof raw !== 'object') continue
+      const photo: PatternPhoto = { id: str(raw.id), thumb: THUMB.test(str(raw.thumb)) ? str(raw.thumb) : null }
+      if (IMAGE_DATA.test(str(raw.data))) photo.data = str(raw.data)
+      if ((photo.id || photo.data) && !pattern.gallery.some((g) => g.id && g.id === photo.id)) pattern.gallery.push(photo)
+    }
+    pattern.gallery = pattern.gallery.slice(0, MAX_GALLERY)
   }
   if (p.placements && typeof p.placements === 'object') {
     const vec = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => Number.isFinite(x))
@@ -122,10 +137,59 @@ export function savePatterns(patterns: Pattern[]): boolean {
   }
 }
 
+/** Fichiers (IndexedDB) utilisés par un patron : couverture, photos, fichier joint, photos de rangs. */
+export function assetIds(p: Pattern): string[] {
+  const ids = [p.imageId, p.fileId, ...p.gallery.map((g) => g.id), ...Object.values(p.roundNotes).map((n) => n.photoId)]
+  return ids.filter((id): id is string => !!id)
+}
+
+/** Des fichiers sont-ils encore en data: (ancien format, import) ? */
+export const needsAssetMigration = (p: Pattern) => !!p.image || !!p.fileData
+  || p.gallery.some((g) => g.data) || Object.values(p.roundNotes).some((n) => n.photoData)
+
+/**
+ * Copie d'un patron, à reprendre de zéro ou avec la progression actuelle. Les photos et le
+ * fichier joint sont partagés (les fichiers ne sont supprimés que quand plus aucun patron ne les utilise).
+ */
+export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string): Pattern {
+  const now = new Date().toISOString()
+  const copy: Pattern = {
+    ...structuredClone(p),
+    id: uid(),
+    name,
+    createdAt: now,
+    updatedAt: now,
+    timerStartedAt: null,
+  }
+  copy.checklist = copy.checklist.map((i) => ({ ...i, id: uid(), done: keepProgress && i.done }))
+  if (!keepProgress) {
+    copy.roundsDone = []
+    copy.stitchCounter = 0
+    copy.timeSpent = 0
+    copy.sessions = []
+    copy.roundNotes = {}
+  }
+  return copy
+}
+
 /** Déplace les fichiers encore stockés en data: (ancien format, import) vers IndexedDB. */
 export async function migratePatternAssets(p: Pattern): Promise<Partial<Pattern> | null> {
-  if (!p.image && !p.fileData) return null
+  if (!needsAssetMigration(p)) return null
   const patch: Partial<Pattern> = { image: undefined, fileData: undefined }
+  if (p.gallery.some((g) => g.data)) {
+    patch.gallery = []
+    for (const g of p.gallery) {
+      if (!g.data) patch.gallery.push(g)
+      else patch.gallery.push({ id: await putAsset(g.data), thumb: g.thumb ?? await makeThumbnail(g.data, 200) })
+    }
+  }
+  if (Object.values(p.roundNotes).some((n) => n.photoData)) {
+    patch.roundNotes = {}
+    for (const [k, n] of Object.entries(p.roundNotes)) {
+      const { photoData, ...note } = n
+      patch.roundNotes[k] = photoData ? { ...note, photoId: await putAsset(photoData), photoThumb: note.photoThumb ?? await makeThumbnail(photoData, 200) } : note
+    }
+  }
   if (p.image) {
     patch.imageId = await putAsset(p.image)
     patch.thumb = await makeThumbnail(p.image)
@@ -142,8 +206,21 @@ export async function exportBackup(patterns: Pattern[]): Promise<Blob> {
   const full = []
   for (const p of patterns) {
     const { imageId, fileId, thumb: _thumb, ...rest } = p
+    const gallery = []
+    for (const g of p.gallery) {
+      const data = g.data || (await getAssetDataUrl(g.id))
+      if (data) gallery.push({ thumb: g.thumb, data })
+    }
+    const roundNotes: Record<string, RoundNote> = {}
+    for (const [k, n] of Object.entries(p.roundNotes)) {
+      const { photoId, ...note } = n
+      const data = n.photoData || (await getAssetDataUrl(photoId))
+      roundNotes[k] = { ...note, photoId: null, ...(data ? { photoData: data } : {}) }
+    }
     full.push({
       ...rest,
+      gallery,
+      roundNotes,
       image: p.image || (await getAssetDataUrl(imageId)),
       fileData: p.fileData || (await getAssetDataUrl(fileId)),
     })

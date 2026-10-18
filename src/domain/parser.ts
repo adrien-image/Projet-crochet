@@ -269,6 +269,11 @@ function colorIn(line: string, legend: Map<string, string>): string | null {
   return null
 }
 
+/** Couleur annoncée dans un titre de pièce (« AILES (x2, couleur C) », « TÊTE en beige »), légende comprise. */
+export function headingColor(heading: string, text: string): string | null {
+  return colorIn(heading, colorLegend(text)) ?? findYarnColor(heading)
+}
+
 const CONTINUES_RE = /\bsuite\s+(?:du|de|des|d['’])|\bcontinued?\b|\(cont\.?\)/i
 const SECTION_STOPWORDS = /^(?:notes?|mat[ée]riel|fournitures|abr[ée]viations?|l[ée]gende|astuces?|conseils?|remarques?|materials?|supplies|abbreviations?|tips?|gauge|[ée]chantillon|taille|size)\b/i
 

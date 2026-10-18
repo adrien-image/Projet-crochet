@@ -1,16 +1,25 @@
 import { useMemo, useState } from 'react'
-import { FileSearch, ImagePlus, Paperclip, Trash2 } from 'lucide-react'
+import { FileSearch, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
-import { compressImage, makeThumbnail } from '../../storage/images'
 import { getAsset, putAsset } from '../../storage/assets'
+import { storePhotos } from '../../storage/photos'
+import { MAX_GALLERY } from '../../storage/patterns'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
 import { t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
+import { photosOf, setPhotos, type PhotoRef } from './actions'
+import { PhotoImage } from './PhotoGallery'
 
 const MAX_FILE_MB = 25
 
+/** Couverture et galerie à partir de la liste ordonnée des photos. */
+function photoFields(list: PhotoRef[]) {
+  const { imageId, thumb, image, gallery } = setPhotos({ imageId: null, thumb: null, gallery: [] } as unknown as Pattern, list)
+  return { imageId, thumb, image: image ?? null, gallery }
+}
+
 export type PatternDraft = Omit<Pattern, 'id' | 'createdAt' | 'updatedAt' | 'checklist' | 'roundsDone' | 'stitchCounter' | 'pieceColors'
-  | 'roundNotes' | 'placements' | 'timeSpent' | 'timerStartedAt' | 'sessions'> & Partial<Pattern>
+  | 'roundNotes' | 'placements' | 'timeSpent' | 'timerStartedAt' | 'sessions' | 'gallery'> & Partial<Pattern>
 
 interface Props {
   initial: Pattern | null
@@ -27,7 +36,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const [text, setText] = useState(initial?.text ?? '')
   const [notation, setNotation] = useState<Notation>(initial?.notation ?? 'auto')
   const [size, setSize] = useState(initial?.size ?? 0)
-  const [image, setImage] = useState({ imageId: initial?.imageId ?? null, thumb: initial?.thumb ?? initial?.image ?? null, image: initial?.image ?? null })
+  const [photos, setPhotoList] = useState<PhotoRef[]>(() => (initial ? photosOf(initial) : []))
   const [file, setFile] = useState({ fileId: initial?.fileId ?? null, fileName: initial?.fileName ?? null, fileType: initial?.fileType ?? null, fileData: initial?.fileData ?? null })
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -38,15 +47,16 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const stats = useMemo(() => patternStats(parsePattern(text, { notation, size: effectiveSize })), [text, notation, effectiveSize])
   const isPdf = file.fileType === 'application/pdf' || /\.pdf$/i.test(file.fileName ?? '')
 
-  const onImage = async (f: File | undefined) => {
-    if (!f) return
+  const room = MAX_GALLERY + 1 - photos.length
+  const onImages = async (files: FileList | null) => {
+    if (!files?.length) return
     setBusy(t('Chargement…'))
     setError('')
     try {
-      const dataUrl = await compressImage(f)
-      setImage({ imageId: await putAsset(dataUrl), thumb: await makeThumbnail(dataUrl), image: null })
-    } catch {
-      setError(t('Impossible de lire cette image.'))
+      const { photos: added, failed } = await storePhotos([...files].slice(0, room))
+      setPhotoList((list) => [...list, ...added])
+      if (failed) setError(tn(failed, '{n} fichier n\'a pas pu être lu.', '{n} fichiers n\'ont pas pu être lus.'))
+      else if (files.length > room) setError(t('{m} photos au maximum par patron.', { m: MAX_GALLERY + 1 }))
     } finally {
       setBusy(null)
     }
@@ -112,9 +122,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       text,
       notation,
       size: effectiveSize,
-      imageId: image.imageId,
-      thumb: image.thumb,
-      image: image.image,
+      ...photoFields(photos),
       ...file,
     })
   }
@@ -193,22 +201,34 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
 
         <fieldset>
           <legend>{t('Fichiers')}</legend>
-          <div className="files">
-            <div className="file-slot">
-              {image.thumb ? <img src={image.thumb} alt="" /> : <ImagePlus size={28} aria-hidden="true" />}
-              <div>
-                <strong>{t('Photo de l\'ouvrage')}</strong>
-                <div className="row-gap wrap">
-                  <label className="btn ghost sm">
-                    {image.imageId || image.image ? t('Changer') : t('Choisir une image')}
-                    <input type="file" accept="image/*" className="sr-only" onChange={(e) => onImage(e.target.files?.[0])} />
-                  </label>
-                  {(image.imageId || image.image) && (
-                    <button type="button" className="btn ghost sm danger" onClick={() => setImage({ imageId: null, thumb: null, image: null })}><Trash2 size={15} /> {t('Retirer')}</button>
-                  )}
+          <div className="form-photos">
+            <span className="form-photos-title"><strong>{t('Photos de l\'ouvrage')}</strong> <span className="opt">{t('la première sert de couverture')}</span></span>
+            <div className="form-photo-grid">
+              {photos.map((ph, i) => (
+                <div key={`${ph.id ?? 'legacy'}-${i}`} className={`form-photo ${i === 0 ? 'cover' : ''}`}>
+                  <PhotoImage photo={ph} alt={t('Photo {n}', { n: i + 1 })} />
+                  {i === 0 && <span className="form-photo-badge"><Star size={11} /> {t('Couverture')}</span>}
+                  <div className="form-photo-actions">
+                    {i > 0 && (
+                      <button type="button" className="icon-btn sm" aria-label={t('Mettre la photo {n} en couverture', { n: i + 1 })} title={t('Mettre en couverture')}
+                        onClick={() => setPhotoList((l) => [l[i], ...l.filter((_, k) => k !== i)])}><Star size={14} /></button>
+                    )}
+                    <button type="button" className="icon-btn sm danger" aria-label={t('Retirer la photo {n}', { n: i + 1 })} title={t('Retirer')}
+                      onClick={() => setPhotoList((l) => l.filter((_, k) => k !== i))}><Trash2 size={14} /></button>
+                  </div>
                 </div>
-              </div>
+              ))}
+              {room > 0 && (
+                <label className={`form-photo add ${busy ? 'disabled' : ''}`}>
+                  <Plus size={22} aria-hidden="true" />
+                  <span>{photos.length ? t('Ajouter des photos') : t('Choisir des photos')}</span>
+                  <input type="file" accept="image/*" multiple className="sr-only" disabled={!!busy}
+                    onChange={(e) => { onImages(e.target.files); e.target.value = '' }} />
+                </label>
+              )}
             </div>
+          </div>
+          <div className="files">
             <div className="file-slot">
               <Paperclip size={28} aria-hidden="true" />
               <div>

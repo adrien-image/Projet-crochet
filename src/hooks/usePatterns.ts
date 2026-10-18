@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Pattern } from '../domain/types'
-import { loadPatterns, savePatterns, migratePatternAssets } from '../storage/patterns'
+import { loadPatterns, savePatterns, migratePatternAssets, needsAssetMigration, assetIds } from '../storage/patterns'
 import { collectGarbage } from '../storage/assets'
 
 const SAVE_DELAY = 400
@@ -52,7 +52,7 @@ export function usePatterns(onSaveError: () => void) {
   // anciens fichiers en data: (ou import) → IndexedDB
   useEffect(() => {
     for (const p of patterns) {
-      if ((!p.image && !p.fileData) || migrating.current.has(p.id)) continue
+      if (!needsAssetMigration(p) || migrating.current.has(p.id)) continue
       migrating.current.add(p.id)
       migratePatternAssets(p).then((patch) => {
         if (patch) setPatterns((ps) => ps.map((x) => (x.id === p.id ? { ...x, ...patch } : x)))
@@ -64,10 +64,7 @@ export function usePatterns(onSaveError: () => void) {
   useEffect(() => {
     const t = setTimeout(() => {
       const keep = new Set<string>()
-      for (const p of latest.current) {
-        if (p.imageId) keep.add(p.imageId)
-        if (p.fileId) keep.add(p.fileId)
-      }
+      for (const p of latest.current) for (const id of assetIds(p)) keep.add(id)
       collectGarbage(keep).catch(() => {})
     }, 4000)
     return () => clearTimeout(t)

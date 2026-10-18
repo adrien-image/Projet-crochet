@@ -3,7 +3,7 @@ import type { Pattern } from './domain/types'
 import { parsePattern, parseOptions, remapRoundKeys } from './domain/parser'
 import { stopTimer } from './domain/time'
 import { uid } from './storage/util'
-import { exportBackup, importBackup } from './storage/patterns'
+import { duplicatePattern, exportBackup, importBackup } from './storage/patterns'
 import { samplePatterns } from './storage/samples'
 import { needsBackupReminder, requestPersistence } from './storage/settings'
 import { decodeShare, encodeShare, shareUrl } from './storage/share'
@@ -20,6 +20,7 @@ import { LibraryView } from './features/library/LibraryView'
 import { StorageDialog } from './features/library/StorageDialog'
 import { PatternView, type ShareKind } from './features/pattern/PatternView'
 import { PatternForm, type PatternDraft } from './features/pattern/PatternForm'
+import { DuplicateDialog } from './features/pattern/DuplicateDialog'
 
 const fileSlug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'patron'
 const shareCodeFromHash = () => window.location.hash.match(/^#\/partage\/([A-Za-z0-9_-]+)$/)?.[1] ?? null
@@ -37,6 +38,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
   const [editing, setEditing] = useState<Pattern | 'new' | null>(null)
   const [storageOpen, setStorageOpen] = useState(false)
   const [incoming, setIncoming] = useState<Pattern | null>(null)
+  const [duplicating, setDuplicating] = useState<Pattern | null>(null)
 
   const open = useMemo(() => patterns.find((p) => p.id === route.patternId) ?? null, [patterns, route.patternId])
   const openPattern = (id: string, tab: PatternTab = 'patron') => navigate({ patternId: id, tab })
@@ -89,7 +91,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
       const now = new Date().toISOString()
       const p: Pattern = {
         ...data, id: uid(), createdAt: now, updatedAt: now, checklist: [], roundsDone: [], stitchCounter: 0, pieceColors: {},
-        roundNotes: {}, placements: {}, timeSpent: 0, timerStartedAt: null, sessions: [],
+        roundNotes: {}, placements: {}, timeSpent: 0, timerStartedAt: null, sessions: [], gallery: data.gallery ?? [],
       } as Pattern
       setPatterns((ps) => [p, ...ps])
       openPattern(p.id)
@@ -171,6 +173,16 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
     }
   }
 
+  const duplicate = (name: string, keepProgress: boolean) => {
+    if (!duplicating) return
+    protect()
+    const copy = duplicatePattern(duplicating, keepProgress, name)
+    setPatterns((ps) => [copy, ...ps])
+    setDuplicating(null)
+    openPattern(copy.id)
+    notify(t('Copie créée : « {name} »', { name: copy.name }))
+  }
+
   const restoreSamples = () => {
     setPatterns((ps) => {
       const names = new Set(ps.map((p) => p.name))
@@ -206,11 +218,13 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
           onBack={() => navigate({ patternId: null, tab: 'patron' })}
           onEdit={() => setEditing(open)}
           onDelete={() => deletePattern(open.id)}
+          onDuplicate={() => setDuplicating(open)}
           onShare={onShare}
           update={updateOpen}
         />
       ) : (
         <LibraryView patterns={patterns} onOpen={openPattern} onNew={() => setEditing('new')} onDelete={deletePattern}
+          onDuplicate={(id) => setDuplicating(patterns.find((p) => p.id === id) ?? null)}
           onExport={onExport} onImport={onImport} onRestoreSamples={restoreSamples} onLang={changeLang}
           onStorage={() => setStorageOpen(true)}
           reminder={{
@@ -223,6 +237,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
       {editing && (
         <PatternForm initial={editing === 'new' ? null : editing} onSave={savePattern} onCancel={() => setEditing(null)} />
       )}
+      {duplicating && <DuplicateDialog pattern={duplicating} onDuplicate={duplicate} onCancel={() => setDuplicating(null)} />}
       {storageOpen && <StorageDialog onClose={() => setStorageOpen(false)} onExport={onExport} lastExportAt={settings.lastExportAt} />}
       {incoming && (
         <Dialog open title={t('Patron partagé')} size="sm" onClose={() => setIncoming(null)}

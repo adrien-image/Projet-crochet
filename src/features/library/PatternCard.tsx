@@ -1,4 +1,4 @@
-import { Ellipsis, ListOrdered, Trash2, Box, Timer } from 'lucide-react'
+import { Copy, Ellipsis, ListOrdered, Trash2, Box, Timer } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
 import { formatDuration, totalSeconds } from '../../domain/time'
@@ -12,10 +12,11 @@ interface Props {
   pattern: Pattern
   onOpen: (id: string, tab?: PatternTab) => void
   onDelete: (id: string) => void
+  onDuplicate: (id: string) => void
   onTag: (tag: string) => void
 }
 
-export function PatternCard({ pattern, onOpen, onDelete, onTag }: Props) {
+export function PatternCard({ pattern, onOpen, onDelete, onDuplicate, onTag }: Props) {
   const progress = patternProgress(pattern)
   const { rounds, steps, pct } = progress
   const finished = progress.total > 0 && progress.done === progress.total
@@ -66,6 +67,7 @@ export function PatternCard({ pattern, onOpen, onDelete, onTag }: Props) {
         <Menu label={t('Actions pour {name}', { name: pattern.name })} icon={<Ellipsis size={18} />} items={[
           { label: t('Ouvrir le compteur'), icon: <ListOrdered size={16} />, onSelect: () => onOpen(pattern.id, 'compteur'), disabled: !rounds.total },
           { label: t('Aperçu 3D'), icon: <Box size={16} />, onSelect: () => onOpen(pattern.id, '3d'), disabled: !rounds.total },
+          { label: t('Dupliquer…'), icon: <Copy size={16} />, onSelect: () => onDuplicate(pattern.id) },
           { label: t('Supprimer'), icon: <Trash2 size={16} />, onSelect: () => onDelete(pattern.id), danger: true },
         ]} />
       </div>
