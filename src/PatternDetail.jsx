@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import Visualizer from './Visualizer'
+import Amigurumi3D from './Amigurumi3D'
+import { uid } from './storage'
+
+const isImage = (pattern) => pattern.image
+const hasPdf = (pattern) => pattern.fileData
 
 export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteItem, onEditPattern, onBack }) {
   const [newItem, setNewItem] = useState('')
-  const [tab, setTab] = useState('pattern') // pattern | viz
+  const [tab, setTab] = useState('pattern') // pattern | viz | 3d
 
   const done = pattern.checklist.filter((i) => i.done).length
   const total = pattern.checklist.length
@@ -37,9 +42,16 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
         <button className={`tab-btn ${tab === 'viz' ? 'active' : ''}`} onClick={() => setTab('viz')}>
           📊 Visualiseur de rangs
         </button>
+        <button className={`tab-btn ${tab === '3d' ? 'active' : ''}`} onClick={() => setTab('3d')}>
+          🧶 Aperçu 3D
+        </button>
       </div>
 
-      {tab === 'viz' ? (
+      {tab === '3d' ? (
+        <div className="viz-wrap">
+          <Amigurumi3D pattern={pattern} />
+        </div>
+      ) : tab === 'viz' ? (
         <div className="viz-wrap">
           <Visualizer pattern={pattern} checklist={pattern.checklist} onToggle={(item) => {
             if (item.id) {
@@ -74,9 +86,6 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
         </div>
       </div>
 
-      </>
-      )}
-
       <div className="checklist">
         <div className="panel-title-row">
           <h4 className="panel-title">
@@ -102,6 +111,9 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
           <button type="submit" className="btn small">+ Ajouter</button>
         </form>
       </div>
+
+      </>
+      )}
     </div>
   )
 }
