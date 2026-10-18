@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { fileToDataUrl, uid } from './storage'
-
-const isImage = (pattern) => pattern.image
-const hasPdf = (pattern) => pattern.fileData
+import Visualizer from './Visualizer'
 
 export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteItem, onEditPattern, onBack }) {
   const [newItem, setNewItem] = useState('')
+  const [tab, setTab] = useState('pattern') // pattern | viz
 
   const done = pattern.checklist.filter((i) => i.done).length
   const total = pattern.checklist.length
@@ -32,6 +30,28 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
         </div>
       </div>
 
+      <div className="tabs">
+        <button className={`tab-btn ${tab === 'pattern' ? 'active' : ''}`} onClick={() => setTab('pattern')}>
+          📄 Patron & image
+        </button>
+        <button className={`tab-btn ${tab === 'viz' ? 'active' : ''}`} onClick={() => setTab('viz')}>
+          📊 Visualiseur de rangs
+        </button>
+      </div>
+
+      {tab === 'viz' ? (
+        <div className="viz-wrap">
+          <Visualizer pattern={pattern} checklist={pattern.checklist} onToggle={(item) => {
+            if (item.id) {
+              const existing = pattern.checklist.find((i) => i.id === item.id)
+              if (existing) return onToggle(pattern.id, item.id)
+            }
+            onAddItem(pattern.id, item)
+          }} />
+        </div>
+      ) : (
+      <>
+
       <div className="detail-body">
         <div className="detail-pattern">
           <h4 className="panel-title">Patron</h4>
@@ -53,6 +73,9 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
           {hasPdf(pattern) && null}
         </div>
       </div>
+
+      </>
+      )}
 
       <div className="checklist">
         <div className="panel-title-row">

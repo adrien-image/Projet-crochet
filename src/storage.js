@@ -23,7 +23,7 @@ export function samplePattern() {
     image: null,
     fileName: null,
     fileData: null,
-    text: 'Petite souris amigurumi (crochet 3mm, coton)\n\nCORPS\nR1 : 6 ms dans un anneau magique (6)\nR2 : 2 aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4 : *2 ms, aug* x6 (24)\nR5-R9 : 24 ms\nR10 : *2 ms, dim* x6 (18)\nR11 : *1 ms, dim* x6 (12)\nBourrer, fermer, rentrer le fil.\n\nOREILLES (x2)\nR1 : 6 ms dans un anneau magique (6)\nR2 : 2 aug dans chaque maille (12)\nFermer, coudre sur la tête.\n\nQUEUE\nChaîner 25 mailles, faire 1 mc dans la 2e maille puis dans chaque maille suivante. Coudre au corps.\n\nASSEMBLAGE\nCoudre les oreilles, broder le nez et les yeux. Terminé ! 🐭',
+    text: 'Petite souris amigurumi (crochet 3mm, coton)\n\nCORPS\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4 : *2 ms, aug* x6 (24)\nR5-R9 : 24 ms\nR10 : *2 ms, dim* x6 (18)\nR11 : *1 ms, dim* x6 (12)\nBourrer, fermer, rentrer le fil.\n\nOREILLES (x2)\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nFermer, coudre sur la tête.\n\nQUEUE\nChaîner 25 mailles, faire 1 mc dans la 2e maille puis dans chaque maille suivante. Coudre au corps.\n\nASSEMBLAGE\nCoudre les oreilles, broder le nez et les yeux. Terminé ! 🐭',
     checklist: [
       { id: uid() + 'a', text: 'Corps : rangs 1 à 4', done: true },
       { id: uid() + 'b', text: 'Corps : rangs 5 à 9', done: true },
