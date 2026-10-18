@@ -54,6 +54,7 @@ const SECTION_RE = /^\s*([A-ZÀ-Ý][A-ZÀ-Ýa-zà-ÿ0-9 '’()x×\-]{2,})\s*:?\s
 const COUNT_RE = /\((\d+)\)\s*$/
 
 const STITCH_WEIGHT = { sc: 1, dc: 1, sl: 1, ch: 1, inc: 2, dec: 1 }
+const STITCH_CONSUME = { sc: 1, dc: 1, sl: 1, ch: 1, inc: 1, dec: 2 }
 
 const EACH_STITCH_RE = /\bdans chaque (?:maille|point)\b/i
 
@@ -91,7 +92,9 @@ export function parsePattern(text) {
       expandSegment(base, stitches)
       const unit = [...stitches]
       const unitCount = stitchCount(unit)
-      const reps = prevCount > 0 ? prevCount : (expected != null && unitCount > 0 ? Math.round(expected / unitCount) : 0)
+      const consumedPerUnit = unit.reduce((s, t) => s + (STITCH_CONSUME[t] ?? 1), 0)
+      const target = prevCount > 0 ? prevCount : (expected != null ? expected : 0)
+      const reps = consumedPerUnit > 0 ? Math.round(target / consumedPerUnit) : 0
       stitches.length = 0
       for (let i = 0; i < reps; i++) stitches.push(...unit)
     } else {
