@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { fileToDataUrl, uid } from './storage'
+import Visualizer from './Visualizer'
+import Amigurumi3D from './Amigurumi3D'
+import { uid } from './storage'
 
 const isImage = (pattern) => pattern.image
 const hasPdf = (pattern) => pattern.fileData
 
 export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteItem, onEditPattern, onBack }) {
   const [newItem, setNewItem] = useState('')
+  const [tab, setTab] = useState('pattern') // pattern | viz | 3d
 
   const done = pattern.checklist.filter((i) => i.done).length
   const total = pattern.checklist.length
@@ -31,6 +34,35 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
           <button className="btn small secondary" onClick={() => onEditPattern(pattern)}>Modifier</button>
         </div>
       </div>
+
+      <div className="tabs">
+        <button className={`tab-btn ${tab === 'pattern' ? 'active' : ''}`} onClick={() => setTab('pattern')}>
+          📄 Patron & image
+        </button>
+        <button className={`tab-btn ${tab === 'viz' ? 'active' : ''}`} onClick={() => setTab('viz')}>
+          📊 Visualiseur de rangs
+        </button>
+        <button className={`tab-btn ${tab === '3d' ? 'active' : ''}`} onClick={() => setTab('3d')}>
+          🧶 Aperçu 3D
+        </button>
+      </div>
+
+      {tab === '3d' ? (
+        <div className="viz-wrap">
+          <Amigurumi3D pattern={pattern} />
+        </div>
+      ) : tab === 'viz' ? (
+        <div className="viz-wrap">
+          <Visualizer pattern={pattern} checklist={pattern.checklist} onToggle={(item) => {
+            if (item.id) {
+              const existing = pattern.checklist.find((i) => i.id === item.id)
+              if (existing) return onToggle(pattern.id, item.id)
+            }
+            onAddItem(pattern.id, item)
+          }} />
+        </div>
+      ) : (
+      <>
 
       <div className="detail-body">
         <div className="detail-pattern">
@@ -79,6 +111,9 @@ export default function PatternDetail({ pattern, onToggle, onAddItem, onDeleteIt
           <button type="submit" className="btn small">+ Ajouter</button>
         </form>
       </div>
+
+      </>
+      )}
     </div>
   )
 }
