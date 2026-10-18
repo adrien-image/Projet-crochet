@@ -14,6 +14,8 @@ const STORAGE_KEY = 'crochet.patterns.v1'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const HEX = /^#[0-9a-f]{6}$/i
+/** clés venues d'un fichier ou d'un lien : jamais celles qui modifieraient le prototype de l'objet */
+const safeKey = (k: string) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
 const THUMB = /^data:image\/(?:jpeg|png|webp);/
 const IMAGE_DATA = /^data:image\/(?:jpeg|png|webp|gif);/
 /** au-delà, les miniatures pèseraient trop dans localStorage */
@@ -58,11 +60,11 @@ export function normalizePattern(p: any): Pattern {
     fileType: str(p.fileType) || null,
   }
   if (p.pieceColors && typeof p.pieceColors === 'object') {
-    for (const [k, v] of Object.entries(p.pieceColors)) if (typeof v === 'string' && HEX.test(v)) pattern.pieceColors[k] = v
+    for (const [k, v] of Object.entries(p.pieceColors)) if (safeKey(k) && typeof v === 'string' && HEX.test(v)) pattern.pieceColors[k] = v
   }
   if (p.roundNotes && typeof p.roundNotes === 'object') {
     for (const [k, v] of Object.entries(p.roundNotes as Record<string, Partial<RoundNote>>)) {
-      if (!v || typeof v !== 'object') continue
+      if (!safeKey(k) || !v || typeof v !== 'object') continue
       const note: RoundNote = {
         text: str(v.text).slice(0, 4000),
         photoId: str(v.photoId) || null,
@@ -84,7 +86,7 @@ export function normalizePattern(p: any): Pattern {
   if (p.placements && typeof p.placements === 'object') {
     const vec = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => Number.isFinite(x))
     for (const [k, v] of Object.entries(p.placements as Record<string, Partial<Placement>>)) {
-      if (v && vec(v.point) && vec(v.normal)) pattern.placements[k] = { point: v.point, normal: v.normal }
+      if (safeKey(k) && v && vec(v.point) && vec(v.normal)) pattern.placements[k] = { point: v.point, normal: v.normal }
     }
   }
   if (str(p.image).startsWith('data:')) pattern.image = p.image

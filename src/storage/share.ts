@@ -2,6 +2,12 @@
 import type { Pattern } from '../domain/types'
 import { normalizePattern } from './patterns'
 
+/** un lien reste petit ; au-delà, il s'agit d'un lien forgé (bombe de décompression) */
+const MAX_CODE = 200_000
+const MAX_JSON = 2_000_000
+
+const SHARED_FIELDS = ['name', 'description', 'tags', 'hook', 'yarn', 'notation', 'size', 'text', 'pieceColors', 'placements', 'checklist'] as const
+
 // Champs partagés : le patron lui-même, pas la progression ni les notes personnelles.
 function shareable(p: Pattern) {
   return {
@@ -21,9 +27,27 @@ const fromBase64Url = (s: string) => {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0))
 }
 
-async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
-  const out = new Blob([bytes as BlobPart]).stream().pipeThrough(stream)
-  return new Uint8Array(await new Response(out).arrayBuffer())
+async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream, limit = Infinity): Promise<Uint8Array> {
+  const reader = new Blob([bytes as BlobPart]).stream().pipeThrough(stream).getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.length
+    if (size > limit) {
+      await reader.cancel()
+      throw new Error('Lien de partage trop volumineux')
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.length
+  }
+  return out
 }
 
 /** Code compact d'un patron, à placer dans un lien (#/partage/<code>). */
@@ -35,12 +59,16 @@ export async function encodeShare(p: Pattern): Promise<string> {
 
 export async function decodeShare(code: string): Promise<Pattern> {
   const kind = code[0]
+  if ((kind !== 'z' && kind !== 'j') || code.length > MAX_CODE) throw new Error('Lien de partage invalide')
   const bytes = fromBase64Url(code.slice(1))
-  const json = kind === 'z' ? await pipe(bytes, new DecompressionStream('deflate-raw')) : bytes
+  const json = kind === 'z' ? await pipe(bytes, new DecompressionStream('deflate-raw'), MAX_JSON) : bytes
   const data = JSON.parse(new TextDecoder().decode(json))
   if (!data || typeof data !== 'object' || typeof data.text !== 'string') throw new Error('Lien de partage invalide')
-  // nouveaux identifiants : le patron reçu est une copie indépendante
-  return normalizePattern({ ...data, id: undefined, createdAt: undefined, updatedAt: undefined, roundsDone: [] })
+  // seuls les champs d'un partage sont repris (pas de fichier, photo ni progression glissés dans un lien
+  // forgé) ; nouveaux identifiants : le patron reçu est une copie indépendante
+  const picked: Record<string, unknown> = {}
+  for (const k of SHARED_FIELDS) if (k in data) picked[k] = data[k]
+  return normalizePattern(picked)
 }
 
 export function shareUrl(code: string): string {

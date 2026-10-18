@@ -4,6 +4,7 @@
 import type { Pattern } from '../domain/types'
 import { kvGet, kvSet } from './assets'
 import { exportBackup, readPatternList } from './patterns'
+import { cleanDeleted } from './settings'
 
 interface Handle {
   name: string
@@ -61,7 +62,7 @@ export async function readSyncFile(handle: Handle): Promise<SyncData | null> {
   const list = Array.isArray(data?.patterns) ? data.patterns : []
   return {
     patterns: await readPatternList(list),
-    deleted: data?.deleted && typeof data.deleted === 'object' ? data.deleted : {},
+    deleted: cleanDeleted(data?.deleted),
     savedAt: typeof data?.savedAt === 'string' ? data.savedAt : null,
   }
 }
