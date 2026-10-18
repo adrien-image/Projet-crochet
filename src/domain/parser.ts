@@ -236,9 +236,12 @@ const LEGEND_RE = /^\s*(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC
 const INLINE_COLOR_RE = /\b(?:en|avec(?:\s+le)?(?:\s+fil)?|au\s+fil|fil|couleur|coloris|in|with|using|change\s+to|switch\s+to|changer\s+(?:pour|en|de\s+couleur\s*:?)|passer\s+(?:au|à|en)|prendre\s+le\s+fil)\s+(?:le\s+|la\s+|l['’]|du\s+|de\s+la\s+|the\s+)?([^,;.()\n]{2,40})/gi
 const PAREN_COLOR_RE = /\(([^()]{2,24})\)/g
 const CHANGE_LINE_RE = /\b(?:changer|change|switch|passer\s+au|prendre\s+le\s+fil|joindre\s+le\s+fil|attach|join\s+(?:new\s+)?(?:yarn|colou?r))\b/i
-const LETTER_REF_RE = /\b(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC\d?|CP|CS))\b/
+// « couleur C » aussi dans un titre en majuscules (« COULEUR C ») ; les codes MC / CC restent en
+// majuscules (« mc » est la maille coulée)
+const LETTER_REF_RE = /\b(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)\b/i
+const CODE_REF_RE = /\b(MC|CC\d?|CP|CS)\b/
 
-function colorLegend(text: string): Map<string, string> {
+export function colorLegend(text: string): Map<string, string> {
   const legend = new Map<string, string>()
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(LEGEND_RE)
@@ -250,9 +253,8 @@ function colorLegend(text: string): Map<string, string> {
 
 /** Couleur nommée dans une instruction (« en rose », « with CC », « (blanc) »), ou null. */
 function colorIn(line: string, legend: Map<string, string>): string | null {
-  const letter = line.match(LETTER_REF_RE)
-  if (letter) {
-    const c = legend.get((letter[1] || letter[2]).toUpperCase())
+  for (const ref of [line.match(LETTER_REF_RE)?.[1], line.match(CODE_REF_RE)?.[1]]) {
+    const c = ref && legend.get(ref.toUpperCase())
     if (c) return c
   }
   for (const m of line.matchAll(INLINE_COLOR_RE)) {
@@ -270,12 +272,12 @@ function colorIn(line: string, legend: Map<string, string>): string | null {
 }
 
 /** Couleur annoncée dans un titre de pièce (« AILES (x2, couleur C) », « TÊTE en beige »), légende comprise. */
-export function headingColor(heading: string, text: string): string | null {
-  return colorIn(heading, colorLegend(text)) ?? findYarnColor(heading)
+export function headingColor(heading: string, legend: Map<string, string>): string | null {
+  return colorIn(heading, legend) ?? findYarnColor(heading)
 }
 
 const CONTINUES_RE = /\bsuite\s+(?:du|de|des|d['’])|\bcontinued?\b|\(cont\.?\)/i
-const SECTION_STOPWORDS = /^(?:notes?|mat[ée]riel|fournitures|abr[ée]viations?|l[ée]gende|astuces?|conseils?|remarques?|materials?|supplies|abbreviations?|tips?|gauge|[ée]chantillon|taille|size)\b/i
+const SECTION_STOPWORDS = /^(?:pattern|patron|instructions?|notes?|mat[ée]riel|fournitures|abr[ée]viations?|l[ée]gende|astuces?|conseils?|remarques?|materials?|supplies|abbreviations?|tips?|gauge|[ée]chantillon|taille|size)\b/i
 
 /** Détecte la notation employée par un texte : 'uk' si termes britanniques, sinon 'us'. */
 export function detectNotation(text: string | null | undefined): 'us' | 'uk' {
@@ -303,17 +305,111 @@ function sectionName(line: string) {
 }
 
 /** Nombre d'exemplaires d'une pièce indiqué dans son titre : « OREILLES (x2) » → 2. */
+const WORD_NUMBERS: Record<string, number> = { two: 2, three: 3, four: 4, deux: 2, trois: 3, quatre: 4 }
+
 export function sectionCopies(section: string | null | undefined) {
-  const m = section?.match(/(?:^|[\s(])[x×]\s*(\d)(?!\w)|\((\d)\s*(?:pi[eè]ces?|exemplaires?|pieces?)\)/i)
-  const n = m ? parseInt(m[1] || m[2], 10) : 1
+  const m = section?.match(/(?:^|[\s(])[x×]\s*(\d)(?!\w)|\((\d)\s*(?:pi[eè]ces?|exemplaires?|pieces?)\)|\b(?:make|faire|r[ée]aliser|crocheter|crochet)\s+(\d|two|three|four|deux|trois|quatre)\b|\b(\d)\s*[x×](?!\w)/i)
+  const raw = m ? (m[1] || m[2] || m[3] || m[4]).toLowerCase() : '1'
+  const n = WORD_NUMBERS[raw] ?? (parseInt(raw, 10) || 1)
   return Math.max(1, Math.min(n, 6))
+}
+
+// Rangs numérotés sans préfixe : « 1 – 6 sc… », « 4 to 7 – 18 sc », « 18 and 19 – … », « 3 e 4 – … »
+const BARE_ROUND_RE = /^\s*(\d{1,3})(?:\s*(?:[-–—]|to|and|et|e|y|à|au|a)\s*(\d{1,3}))?\s*(?:[–—:.)]|-(?!\d))\s*(.+)$/i
+// un rang sans préfixe doit contenir une maille (sinon : liste numérotée d'étapes, quantités…)
+const STITCH_HINT_RE = /\b(?:sc|hdc|dc|tr|trc|htr|ss|sl\s*st|slst|ch|inc|dec|invdec|ms|db|dB|br|dbr|mc|ml|aug|dim|pb|mr|magic\s+(?:ring|circle)|anneau)\b/i
+
+interface RoundMatch { word: string, from: number, to: number | null, instruction: string }
+type ScannedLine =
+  | { kind: 'round', line: string, round: RoundMatch }
+  | { kind: 'section', line: string, name: string }
+  | { kind: 'text', line: string }
+
+/**
+ * Titre « souple » (casse mixte, sans « : » final) : seulement juste avant un rang 1, comme
+ * « Front legs – make 2 » ou « Body: start at the top of the snout ».
+ */
+function looseSectionName(line: string): string | null {
+  const s = line.replace(/^[#=*_\-•\s]+/, '').replace(/[#=*_\s]+$/, '').trim()
+  if (s.length < 2 || s.length > 70 || !/^\p{Lu}/u.test(s) || /[.!?…]$/.test(s) || SECTION_STOPWORDS.test(s)) return null
+  // « Body: start at the top » → « Body (start at the top) »
+  const m = s.match(/^([^:]{2,30}):\s*(.*)$/)
+  if (m) return m[2] ? `${m[1].trim()} (${m[2].replace(/\s*:\s*$/, '')})` : m[1].trim()
+  return s
+}
+
+/** Classe chaque ligne du texte : rang, titre de pièce ou texte libre. */
+function scanLines(text: string | null | undefined): ScannedLine[] {
+  const out: ScannedLine[] = []
+  // numéro attendu pour le prochain rang sans préfixe de la pièce en cours
+  let bareNext: number | null = null
+  for (const raw of (text || '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const rm = line.match(ROUND_RE)
+    if (rm) {
+      out.push({ kind: 'round', line, round: { word: rm[1], from: parseInt(rm[2], 10), to: rm[3] != null ? parseInt(rm[3], 10) : null, instruction: rm[4] } })
+      continue
+    }
+    const bm = line.match(BARE_ROUND_RE)
+    if (bm && STITCH_HINT_RE.test(bm[3])) {
+      const from = parseInt(bm[1], 10)
+      const to = bm[2] != null ? parseInt(bm[2], 10) : null
+      if (from === 1 || from === bareNext) {
+        out.push({ kind: 'round', line, round: { word: '', from, to, instruction: bm[3] } })
+        bareNext = (to ?? from) + 1
+        continue
+      }
+    }
+    const name = sectionName(line)
+    if (name) {
+      bareNext = null
+      out.push({ kind: 'section', line, name })
+    } else out.push({ kind: 'text', line })
+  }
+  // titres souples : la ligne de texte juste avant un rang 1
+  for (let i = 0; i + 1 < out.length; i++) {
+    const cur = out[i]
+    const next = out[i + 1]
+    if (cur.kind !== 'text' || next.kind !== 'round' || next.round.from !== 1) continue
+    const prev = out[i - 1]
+    // pas au milieu d'une pièce : le rang 1 qui suit commence bien une nouvelle pièce
+    if (prev && prev.kind === 'round' && prev.round.from === 1 && prev.round.to == null && next.round.word === prev.round.word) continue
+    const name = looseSectionName(cur.line)
+    if (name) out[i] = { kind: 'section', line: cur.line, name }
+  }
+  return out
+}
+
+const ROWS_NOTE_RE = /\(\s*\d+\s*(?:rows?|rounds?|rnds?|rangs?|tours?)\s*\)/gi
+
+/**
+ * Retire les remarques d'un rang : « 18 sc (2 rows) – stuff the head » → « 18 sc »,
+ * « BLO – 18 sc » → « 18 sc ». Les morceaux séparés par un tiret espacé sans maille sont ignorés.
+ */
+function stripRoundRemarks(instruction: string): string {
+  const cleaned = instruction.replace(ROWS_NOTE_RE, ' ')
+  const parts = cleaned.split(/\s+[–—-]\s+/)
+  if (parts.length === 1) return cleaned.trim()
+  const kept = parts.filter((p) => STITCH_HINT_RE.test(p))
+  return (kept.length ? kept.join(', ') : cleaned).trim()
+}
+
+// une répétition est déjà écrite : pas de répétition implicite
+const EXPLICIT_REPEAT_RE = /[x×*]\s*\d|\d\s*[x×]|\brep(?:eat)?\b|\bfois\b|\btimes\b|around|autour|chaque|\beach\b|\bevery\b|across/i
+
+/** La ligne est-elle un rang (« R3 : … », « 3 – 1 sc, 1 inc (18) ») ? */
+export function looksLikeRound(line: string): boolean {
+  if (ROUND_RE.test(line)) return true
+  const bm = line.match(BARE_ROUND_RE)
+  return !!bm && STITCH_HINT_RE.test(bm[3])
 }
 
 /** Nombre de tailles proposées par le patron : « (80, 88, 96) » → 3. */
 export function detectSizes(text: string | null | undefined) {
   let n = 1
-  for (const line of (text || '').split(/\r?\n/)) {
-    if (!ROUND_RE.test(line)) continue
+  for (const { kind, line } of scanLines(text)) {
+    if (kind !== 'round') continue
     const tail = line.match(SIZES_COUNT_RE)
     if (tail) n = Math.max(n, tail[1].split(/[,/]/).length)
     for (const m of line.matchAll(INLINE_SIZES_RE)) n = Math.max(n, m[2].split(/[,/]/).length + 1)
@@ -388,12 +484,10 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
   // couleur en cours dans la pièce (null : couleur de la pièce)
   let color: string | null = null
 
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line) continue
-    const rm = line.match(ROUND_RE)
-    if (!rm) {
-      const sec = sectionName(line)
+  for (const scanned of scanLines(text)) {
+    const { line } = scanned
+    if (scanned.kind !== 'round') {
+      const sec = scanned.kind === 'section' ? scanned.name : null
       if (sec) {
         // « CORPS (suite du museau) » prolonge la pièce précédente
         if (!(CONTINUES_RE.test(sec) && prevInSection)) {
@@ -410,11 +504,13 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
     }
     if (piece < 0) piece = 0
 
-    let instruction = rm[4]
+    const rm = scanned.round
+    let instruction = rm.instruction
     color = colorIn(instruction, legend) ?? color
-    const flat = /^rows?$/i.test(rm[1]) || TURN_RE.test(instruction)
+    const flat = /^rows?$/i.test(rm.word) || TURN_RE.test(instruction)
     const inSpace = CHAIN_SPACE_RE.test(instruction)
     const loop = BLO_RE.test(instruction) ? 'blo' : FLO_RE.test(instruction) ? 'flo' : null
+    instruction = stripRoundRemarks(instruction)
     let expected = null
     const sm = instruction.match(SIZES_COUNT_RE)
     const cm = sm ? null : instruction.match(COUNT_RE)
@@ -428,13 +524,19 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
     instruction = instruction.replace(INLINE_SIZES_RE, (_, first, rest) => pickSize([first, ...rest.split(/[,/]/)], size).trim())
     instruction = preprocess(instruction, notation)
 
-    const from = parseInt(rm[2], 10)
-    let to = rm[3] != null ? parseInt(rm[3], 10) : from
+    const from = rm.from
+    let to = rm.to ?? from
     if (to < from || to - from >= 50) to = from
 
     for (let r = from; r <= to; r++) {
       const prevCount = prevInSection ? prevInSection.count : 0
-      const stitches = parseInstruction(instruction, prevCount, expected, map)
+      let stitches = parseInstruction(instruction, prevCount, expected, map)
+      // « 3 – 1 sc, 1 inc (18) » : la séquence se répète tout le tour (le compte annoncé le confirme)
+      const once = stitchConsumed(stitches)
+      if (expected != null && once > 0 && prevCount > once && prevCount % once === 0 && !EXPLICIT_REPEAT_RE.test(instruction)
+        && stitchCount(stitches) * (prevCount / once) === expected && stitchCount(stitches) !== expected) {
+        stitches = Array.from({ length: prevCount / once }, () => stitches).flat()
+      }
       const count = stitchCount(stitches)
       const consumed = stitchConsumed(stitches)
       const label = `R${r}`
@@ -457,8 +559,12 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
         prevCount: prevInSection ? prevCount : null,
         expected,
         color,
-        valid: expected == null || count === expected,
-        fits: prevInSection && stitches.length && !inSpace && !isStructuralOnly(stitches) ? consumed === prevCount : null,
+        // certains patrons comptent les mailles coulées dans le total (« 2 hdc, 1 sc, 1 ss (4) »)
+        valid: expected == null || count === expected || count + stitches.filter((x) => x === 'sl').length === expected,
+        // un tour qui finit par une maille coulée peut s'arrêter avant la fin (« 2 hdc, 1 sc, 1 ss », puis arrêter)
+        fits: prevInSection && stitches.length && !inSpace && !isStructuralOnly(stitches)
+          ? consumed === prevCount || (stitches[stitches.length - 1] === 'sl' && consumed < prevCount)
+          : null,
       }
       rounds.push(round)
       prevInSection = round
@@ -477,18 +583,16 @@ export function parseCords(text: string | null | undefined): Cord[] {
   if (!text) return []
   const found = new Map<string | null, { length: number, rounds: number }>()
   let section: string | null = null
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line) continue
+  for (const scanned of scanLines(text)) {
+    const { line } = scanned
     const entry = found.get(section) ?? { length: 0, rounds: 0 }
-    if (ROUND_RE.test(line)) {
+    if (scanned.kind === 'round') {
       entry.rounds++
       found.set(section, entry)
       continue
     }
-    const sec = sectionName(line)
-    if (sec) {
-      section = sec
+    if (scanned.kind === 'section') {
+      section = scanned.name
       continue
     }
     const m = line.match(CORD_RE)
@@ -506,17 +610,13 @@ export function parseCords(text: string | null | undefined): Cord[] {
 export function splitSections(text: string | null | undefined): Map<string | null, string> {
   const out = new Map<string | null, string>()
   let section: string | null = null
-  for (const raw of (text || '').split(/\r?\n/)) {
-    const line = raw.trim()
-    if (line && !ROUND_RE.test(line)) {
-      const sec = sectionName(line)
-      if (sec) {
-        section = sec
-        if (!out.has(section)) out.set(section, '')
-        continue
-      }
+  for (const scanned of scanLines(text)) {
+    if (scanned.kind === 'section') {
+      section = scanned.name
+      if (!out.has(section)) out.set(section, '')
+      continue
     }
-    out.set(section, `${out.get(section) ?? ''}${raw}\n`)
+    out.set(section, `${out.get(section) ?? ''}${scanned.line}\n`)
   }
   return out
 }

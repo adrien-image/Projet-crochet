@@ -3,7 +3,7 @@
 // dossier Dropbox, Google Drive ou iCloud — et relue au démarrage. Aucun serveur.
 import type { Pattern } from '../domain/types'
 import { kvGet, kvSet } from './assets'
-import { exportBackup, normalizePattern } from './patterns'
+import { exportBackup, readPatternList } from './patterns'
 
 interface Handle {
   name: string
@@ -60,14 +60,15 @@ export async function readSyncFile(handle: Handle): Promise<SyncData | null> {
   const data = JSON.parse(await file.text())
   const list = Array.isArray(data?.patterns) ? data.patterns : []
   return {
-    patterns: list.filter((p: unknown) => p && typeof p === 'object').map(normalizePattern),
+    patterns: await readPatternList(list),
     deleted: data?.deleted && typeof data.deleted === 'object' ? data.deleted : {},
     savedAt: typeof data?.savedAt === 'string' ? data.savedAt : null,
   }
 }
 
 export async function writeSyncFile(handle: Handle, patterns: Pattern[], deleted: Record<string, string>): Promise<void> {
-  const backup = JSON.parse(await (await exportBackup(patterns)).text())
+  // réécrit à chaque modification : sans les photos de galerie et de rang (miniatures seulement)
+  const backup = JSON.parse(await (await exportBackup(patterns, { photos: false })).text())
   const blob = new Blob([JSON.stringify({ ...backup, deleted, savedAt: new Date().toISOString() })], { type: 'application/json' })
   const w = await handle.createWritable()
   await w.write(blob)

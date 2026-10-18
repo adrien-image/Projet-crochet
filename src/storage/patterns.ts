@@ -2,6 +2,7 @@
 // données, sauvegarde complète (export / import JSON).
 import type { ChecklistItem, Pattern, PatternPhoto, Placement, Round, RoundNote, WorkSession } from '../domain/types'
 import { parsePattern, parseOptions } from '../domain/parser'
+import { stopTimer } from '../domain/time'
 import { putAsset, getAssetDataUrl } from './assets'
 import { makeThumbnail } from './images'
 import { samplePatterns } from './samples'
@@ -76,7 +77,7 @@ export function normalizePattern(p: any): Pattern {
       if (!raw || typeof raw !== 'object') continue
       const photo: PatternPhoto = { id: str(raw.id), thumb: THUMB.test(str(raw.thumb)) ? str(raw.thumb) : null }
       if (IMAGE_DATA.test(str(raw.data))) photo.data = str(raw.data)
-      if ((photo.id || photo.data) && !pattern.gallery.some((g) => g.id && g.id === photo.id)) pattern.gallery.push(photo)
+      if ((photo.id || photo.data || photo.thumb) && !pattern.gallery.some((g) => g.id && g.id === photo.id)) pattern.gallery.push(photo)
     }
     pattern.gallery = pattern.gallery.slice(0, MAX_GALLERY)
   }
@@ -151,10 +152,12 @@ export const needsAssetMigration = (p: Pattern) => !!p.image || !!p.fileData
  * Copie d'un patron, à reprendre de zéro ou avec la progression actuelle. Les photos et le
  * fichier joint sont partagés (les fichiers ne sont supprimés que quand plus aucun patron ne les utilise).
  */
-export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string): Pattern {
-  const now = new Date().toISOString()
+export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string, nowMs = Date.now()): Pattern {
+  const now = new Date(nowMs).toISOString()
+  // la séance en cours compte dans le temps passé de la copie
+  const base = keepProgress ? stopTimer(p, nowMs) : p
   const copy: Pattern = {
-    ...structuredClone(p),
+    ...structuredClone(base),
     id: uid(),
     name,
     createdAt: now,
@@ -172,53 +175,78 @@ export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string
   return copy
 }
 
-/** Déplace les fichiers encore stockés en data: (ancien format, import) vers IndexedDB. */
-export async function migratePatternAssets(p: Pattern): Promise<Partial<Pattern> | null> {
+/** data: → fichier enregistré dans IndexedDB (et sa miniature) */
+export type StoredAssets = Map<string, { id: string, thumb: string | null }>
+
+/** Enregistre dans IndexedDB les fichiers encore en data: (ancien format, import, synchronisation). */
+export async function storeInlineAssets(p: Pattern): Promise<StoredAssets | null> {
   if (!needsAssetMigration(p)) return null
-  const patch: Partial<Pattern> = { image: undefined, fileData: undefined }
-  if (p.gallery.some((g) => g.data)) {
-    patch.gallery = []
-    for (const g of p.gallery) {
-      if (!g.data) patch.gallery.push(g)
-      else patch.gallery.push({ id: await putAsset(g.data), thumb: g.thumb ?? await makeThumbnail(g.data, 200) })
-    }
+  const stored: StoredAssets = new Map()
+  const put = async (data: string, thumbSize: number | null) => {
+    if (!stored.has(data)) stored.set(data, { id: await putAsset(data), thumb: thumbSize ? await makeThumbnail(data, thumbSize) : null })
   }
-  if (Object.values(p.roundNotes).some((n) => n.photoData)) {
-    patch.roundNotes = {}
-    for (const [k, n] of Object.entries(p.roundNotes)) {
-      const { photoData, ...note } = n
-      patch.roundNotes[k] = photoData ? { ...note, photoId: await putAsset(photoData), photoThumb: note.photoThumb ?? await makeThumbnail(photoData, 200) } : note
-    }
-  }
-  if (p.image) {
-    patch.imageId = await putAsset(p.image)
-    patch.thumb = await makeThumbnail(p.image)
-  }
-  if (p.fileData) {
-    patch.fileId = await putAsset(p.fileData)
-    patch.fileType = p.fileData.match(/^data:([^;,]+)/)?.[1] ?? null
-  }
-  return patch
+  if (p.image) await put(p.image, 320)
+  if (p.fileData) await put(p.fileData, null)
+  for (const g of p.gallery) if (g.data) await put(g.data, 240)
+  for (const n of Object.values(p.roundNotes)) if (n.photoData) await put(n.photoData, 200)
+  return stored
 }
 
-/** Sauvegarde complète : les fichiers sont réintégrés en data: pour être portables. */
-export async function exportBackup(patterns: Pattern[]): Promise<Blob> {
+/**
+ * Remplace les data: déjà enregistrés par leurs identifiants, sur l'état actuel du patron :
+ * ce que l'utilisateur a modifié pendant l'enregistrement (photo ajoutée, note…) est conservé.
+ */
+export function applyStoredAssets(p: Pattern, stored: StoredAssets): Pattern {
+  const next: Pattern = { ...p }
+  const cover = p.image ? stored.get(p.image) : undefined
+  if (cover) Object.assign(next, { imageId: cover.id, thumb: cover.thumb ?? p.thumb, image: undefined })
+  const file = p.fileData ? stored.get(p.fileData) : undefined
+  if (file) Object.assign(next, { fileId: file.id, fileType: p.fileData!.match(/^data:([^;,]+)/)?.[1] ?? p.fileType, fileData: undefined })
+  next.gallery = p.gallery.map((g) => {
+    const s = g.data ? stored.get(g.data) : undefined
+    return s ? { id: s.id, thumb: g.thumb ?? s.thumb } : g
+  })
+  next.roundNotes = Object.fromEntries(Object.entries(p.roundNotes).map(([k, n]) => {
+    const s = n.photoData ? stored.get(n.photoData) : undefined
+    if (!s) return [k, n]
+    const { photoData: _data, ...note } = n
+    return [k, { ...note, photoId: s.id, photoThumb: note.photoThumb ?? s.thumb }]
+  }))
+  return next
+}
+
+async function withStoredAssets(p: Pattern): Promise<Pattern> {
+  const stored = await storeInlineAssets(p)
+  return stored ? applyStoredAssets(p, stored) : p
+}
+
+/**
+ * Sauvegarde complète : les fichiers sont réintégrés en data: pour être portables.
+ * `photos: false` (synchronisation, réécrite à chaque modification) : la galerie et les photos de
+ * rang ne gardent que leurs miniatures ; seules la couverture et le fichier joint sont inclus.
+ */
+export async function exportBackup(patterns: Pattern[], { photos = true } = {}): Promise<Blob> {
   const full = []
   for (const p of patterns) {
     const { imageId, fileId, thumb: _thumb, ...rest } = p
-    const gallery = []
-    for (const g of p.gallery) {
-      const data = g.data || (await getAssetDataUrl(g.id))
-      if (data) gallery.push({ thumb: g.thumb, data })
-    }
-    const roundNotes: Record<string, RoundNote> = {}
-    for (const [k, n] of Object.entries(p.roundNotes)) {
-      const { photoId, ...note } = n
-      const data = n.photoData || (await getAssetDataUrl(photoId))
-      roundNotes[k] = { ...note, photoId: null, ...(data ? { photoData: data } : {}) }
+    let gallery: PatternPhoto[] = p.gallery
+    let roundNotes: Record<string, RoundNote> = p.roundNotes
+    if (photos) {
+      gallery = []
+      for (const g of p.gallery) {
+        const data = g.data || (await getAssetDataUrl(g.id))
+        if (data) gallery.push({ id: '', thumb: g.thumb, data })
+        else if (g.thumb) gallery.push({ id: '', thumb: g.thumb })
+      }
+      roundNotes = {}
+      for (const [k, n] of Object.entries(p.roundNotes)) {
+        const data = n.photoData || (await getAssetDataUrl(n.photoId))
+        roundNotes[k] = { ...n, photoId: null, ...(data ? { photoData: data } : {}) }
+      }
     }
     full.push({
       ...rest,
+      ...(photos ? {} : { thumb: p.thumb }),
       gallery,
       roundNotes,
       image: p.image || (await getAssetDataUrl(imageId)),
@@ -233,5 +261,15 @@ export async function importBackup(file: Blob): Promise<Pattern[]> {
   const data = JSON.parse(await file.text())
   const list = Array.isArray(data) ? data : data?.patterns
   if (!Array.isArray(list)) throw new Error('Format de fichier non reconnu')
-  return list.filter((p) => p && typeof p === 'object').map(normalizePattern)
+  // fichiers enregistrés avant d'entrer dans la bibliothèque : localStorage ne reçoit jamais les photos en data:
+  const patterns = []
+  for (const p of list.filter((x) => x && typeof x === 'object').map(normalizePattern)) patterns.push(await withStoredAssets(p))
+  return patterns
+}
+
+/** Patrons d'un fichier de synchronisation, fichiers enregistrés dans IndexedDB. */
+export async function readPatternList(list: unknown[]): Promise<Pattern[]> {
+  const patterns = []
+  for (const p of list.filter((x) => x && typeof x === 'object').map(normalizePattern)) patterns.push(await withStoredAssets(p))
+  return patterns
 }
