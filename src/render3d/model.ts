@@ -601,7 +601,7 @@ function assemble(
     const spread = mode === 'forward' ? Math.PI * 0.32 : Math.PI * 0.2
     for (const a of [spread, -spread]) {
       const p = faceFrame.point(t, a, -0.15)
-      parts.push({ kind: 'bead', id: nextId('eye'), label: 'Yeux', color: details.eyes.color, radius: Math.max(0.55, radiusAt(faceFrame === mainFrame ? main.b : main.b, t) * 0.15), position: p, glossy: true, squash: 1 })
+      parts.push({ kind: 'bead', id: nextId('eye'), label: 'Yeux', color: details.eyes.color, radius: Math.max(0.55, radiusAt(faceFrame !== mainFrame && head ? head.b : main.b, t) * 0.15), position: p, glossy: true, squash: 1 })
     }
   }
   if (details.nose) {

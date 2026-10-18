@@ -120,6 +120,15 @@ function preprocess(str: string, notation: Notation) {
   return s
 }
 
+/**
+ * Plafond de mailles par rang : bien au-delà d'un vrai rang (une couverture fait quelques centaines de
+ * mailles), mais assez bas pour qu'un texte collé comme « (((sc) x200) x200) x200 » (8 millions de
+ * mailles) ne fige pas l'onglet — diagrammes, tissu et 3D sont dessinés maille par maille.
+ */
+export const MAX_STITCHES = 2000
+/** nombre maximal de rangs d'une plage « R2-R300 » */
+const MAX_RANGE = 400
+
 function parseTokens(str: string, out: StitchType[], map: Record<string, StitchType>) {
   const tokRe = /(\d+)?(\s*)([A-Za-zÀ-ÿ][A-Za-z0-9À-ÿ]*)/g
   let m
@@ -143,7 +152,8 @@ function parseTokens(str: string, out: StitchType[], map: Record<string, StitchT
       count = Math.min(count * multiplier(mult), 500)
       tokRe.lastIndex += mult[0].length
     }
-    for (let i = 0; i < count; i++) out.push(type)
+    for (let i = 0; i < count && out.length < MAX_STITCHES; i++) out.push(type)
+    if (out.length >= MAX_STITCHES) return
   }
 }
 
@@ -187,7 +197,8 @@ function expandSegment(str: string, out: StitchType[], map: Record<string, Stitc
     const mm = after.match(MULT_RE)
     const n = mm ? multiplier(mm) : 1
     if (mm) after = after.slice(mm[0].length)
-    for (let i = 0; i < n; i++) expandSegment(g.inner, out, map, depth + 1)
+    for (let i = 0; i < n && out.length < MAX_STITCHES; i++) expandSegment(g.inner, out, map, depth + 1)
+    if (out.length >= MAX_STITCHES) return
     rest = after
   }
   if (rest) parseTokens(rest, out, map)
@@ -344,7 +355,8 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
   // numéro attendu pour le prochain rang sans préfixe de la pièce en cours
   let bareNext: number | null = null
   for (const raw of (text || '').split(/\r?\n/)) {
-    const line = raw.trim()
+    // espaces regroupés : aucune expression ne s'emballe sur « 6 sc =1          x »
+    const line = raw.trim().replace(/\s+/g, ' ')
     if (!line) continue
     const rm = line.match(ROUND_RE)
     if (rm) {
@@ -456,11 +468,11 @@ function parseInstruction(instruction: string, prevCount: number, expected: numb
     const unitProduced = stitchCount(unit)
     if (unitProduced > 0) reps = Math.round((expected - stitchCount([...prefix, ...suffix])) / unitProduced)
   }
-  reps = Math.max(1, Math.min(reps, 500))
+  reps = Math.max(1, Math.min(reps, 500, Math.floor(MAX_STITCHES / unit.length)))
   const stitches = [...prefix]
   for (let i = 0; i < reps; i++) stitches.push(...unit)
   stitches.push(...suffix)
-  return stitches
+  return stitches.slice(0, MAX_STITCHES)
 }
 
 /**
@@ -510,7 +522,9 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
     const flat = /^rows?$/i.test(rm.word) || TURN_RE.test(instruction)
     const inSpace = CHAIN_SPACE_RE.test(instruction)
     const loop = BLO_RE.test(instruction) ? 'blo' : FLO_RE.test(instruction) ? 'flo' : null
-    instruction = stripRoundRemarks(instruction)
+    // espaces regroupés : les expressions de fin de rang (« = 16 sc », « (12) ») ne peuvent plus
+    // s'emballer sur une longue suite d'espaces (texte collé, PDF)
+    instruction = stripRoundRemarks(instruction).replace(/\s+/g, ' ')
     let expected = null
     const sm = instruction.match(SIZES_COUNT_RE)
     const cm = sm ? null : instruction.match(COUNT_RE)
@@ -526,7 +540,9 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
 
     const from = rm.from
     let to = rm.to ?? from
-    if (to < from || to - from >= 50) to = from
+    // « Rows 2-60 » (écharpe, couverture) : une longue plage reste une plage, dans la limite du raisonnable
+    if (to < from) to = from
+    to = Math.min(to, from + MAX_RANGE)
 
     for (let r = from; r <= to; r++) {
       const prevCount = prevInSection ? prevInSection.count : 0
@@ -535,7 +551,7 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
       const once = stitchConsumed(stitches)
       if (expected != null && once > 0 && prevCount > once && prevCount % once === 0 && !EXPLICIT_REPEAT_RE.test(instruction)
         && stitchCount(stitches) * (prevCount / once) === expected && stitchCount(stitches) !== expected) {
-        stitches = Array.from({ length: prevCount / once }, () => stitches).flat()
+        stitches = Array.from({ length: prevCount / once }, () => stitches).flat().slice(0, MAX_STITCHES)
       }
       const count = stitchCount(stitches)
       const consumed = stitchConsumed(stitches)

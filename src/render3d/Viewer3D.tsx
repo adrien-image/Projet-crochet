@@ -166,7 +166,8 @@ const Canvas3D = forwardRef<Viewer3DHandle, Props & { onLost: () => void }>(func
 
     const scene = new THREE.Scene()
     const pmrem = new THREE.PMREMGenerator(renderer)
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    const room = new RoomEnvironment()
+    const env = pmrem.fromScene(room, 0.04).texture
     scene.environment = env
     scene.environmentIntensity = 0.5
 
@@ -314,7 +315,14 @@ const Canvas3D = forwardRef<Viewer3DHandle, Props & { onLost: () => void }>(func
       ctx.current?.geometries.forEach((g) => g.dispose())
       env.dispose()
       pmrem.dispose()
+      // renderer.dispose() ne libère ni la carte d'ombre, ni la pièce d'éclairage, ni le sol :
+      // sans cela chaque ouverture de l'onglet 3D garde un contexte WebGL (le navigateur en limite le nombre)
+      room.dispose()
+      key.shadow.dispose()
+      ground.geometry.dispose()
+      ground.material.dispose()
       renderer.dispose()
+      renderer.forceContextLoss()
       canvas.remove()
       ctx.current = null
     }

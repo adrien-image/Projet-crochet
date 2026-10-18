@@ -13,8 +13,11 @@ export const YARN_MARGIN = 0.2
 
 /** Taille de crochet en mm lue dans un texte (« 3,5 mm », « 4mm », « US G/6 » non géré). */
 export function hookMm(text: string | null | undefined): number | null {
-  const m = (text ?? '').match(/(\d+(?:[.,]\d+)?)\s*mm/i)
-  const v = m ? parseFloat(m[1].replace(',', '.')) : NaN
+  const s = text ?? ''
+  // d'abord une taille accolée au mot crochet / hook (« 10 mm safety eyes, 3.5 mm hook » → 3,5)
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*mm\s+(?:crochet\s+)?hook|\b(?:hook|crochet)(?:\s+(?:size|n°|de))?(?:\s+used)?\s*:?\s*(?:[a-z]-?\d+\s*\/\s*)?(\d+(?:[.,]\d+)?)\s*mm|\bcrochet\s+n[°ºo]\s*(\d+(?:[.,]\d+)?)/i)
+    ?? s.match(/(\d+(?:[.,]\d+)?)\s*mm/i)
+  const v = m ? parseFloat((m[1] ?? m[2] ?? m[3]).replace(',', '.')) : NaN
   return Number.isFinite(v) && v >= 1 && v <= 25 ? v : null
 }
 
