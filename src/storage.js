@@ -36,6 +36,27 @@ export function samplePattern() {
   }
 }
 
+export function heartPattern() {
+  return {
+    id: uid(),
+    name: 'Coussin cœur amigurumi (patron original)',
+    description: 'Exemple original fourni avec l\'application : cœur à deux lobes avec pointe en dessous, en pièces séparées ou en un seul morceau selon la méthode choisie. Crochet 4 mm, fil laine rouge, environ 15 cm de large. Modifie-le ou supprime-le librement !',
+    tags: ['amigurumi', 'cœur', 'exemple', 'débutant'],
+    createdAt: new Date().toISOString(),
+    image: null,
+    fileName: null,
+    fileData: null,
+    text: 'Coussin cœur amigurumi — crochet 4 mm, fil laine rouge, largeur ≈ 15 cm.\nTravailler en spirale, sans joindre les rangs. Bourrer au fur et à mesure.\n\nLOBE GAUCHE\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4 : *2 ms, aug* x6 (24)\nR5-R7 : 24 ms\nR8 : *5 ms, aug* x4 (28)\nR9-R10 : 28 ms\nNe pas fermer, mettre en attente. Bourrer légèrement.\n\nLOBE DROIT (x2e lobe identique)\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4 : *2 ms, aug* x6 (24)\nR5-R7 : 24 ms\nR8 : *5 ms, aug* x4 (28)\nR9-R10 : 28 ms\nNe pas fermer, mettre en attente. Bourrer légèrement.\n\nASSEMBLAGE DES LOBES\nAligner les deux lobes côte à côte, coudre les côtés intérieurs sur 8 mailles pour former le haut du cœur (le creux central).\n\nCORPS DU CŒUR (suite sur les 2 lobes assemblés)\nR11 : 48 ms autour de l\'ensemble des deux lobes (48)\nR12-R13 : 48 ms\nR14 : *6 ms, dim* x6 (42)\nR15 : 42 ms\nR16 : *5 ms, dim* x6 (36)\nR17 : 36 ms\nR18 : *4 ms, dim* x6 (30)\nR19 : 30 ms\nR20 : *3 ms, dim* x6 (24)\nR21 : 24 ms\nR22 : *2 ms, dim* x6 (18)\nR23 : 18 ms\nR24 : *1 ms, dim* x6 (12)\nR25 : dim dans chaque maille (6)\nBourrer fermement, fermer, rentrer le fil. Terminé ! ❤️',
+    checklist: [
+      { id: uid() + 'h1', text: 'Lobe gauche : rangs 1 à 10', done: false },
+      { id: uid() + 'h2', text: 'Lobe droit : rangs 1 à 10', done: false },
+      { id: uid() + 'h3', text: 'Assemblage des deux lobes', done: false },
+      { id: uid() + 'h4', text: 'Corps : rangs 11 à 17', done: false },
+      { id: uid() + 'h5', text: 'Corps : rangs 18 à 25 et fermeture', done: false },
+    ],
+  }
+}
+
 export function loadPatterns() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -46,7 +67,7 @@ export function loadPatterns() {
   } catch {
     // corrupted storage, fall through to sample
   }
-  const initial = [samplePattern()]
+  const initial = [samplePattern(), heartPattern()]
   localStorage.setItem(STORAGE_KEY, JSON.stringify(initial))
   return initial
 }
