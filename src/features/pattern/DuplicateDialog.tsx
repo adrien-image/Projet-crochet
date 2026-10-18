@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
-import { formatDuration } from '../../domain/time'
+import { formatDuration, totalSeconds } from '../../domain/time'
 import { t } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 
@@ -15,12 +15,14 @@ interface Props {
 export function DuplicateDialog({ pattern, onDuplicate, onCancel }: Props) {
   const [name, setName] = useState(t('{name} (copie)', { name: pattern.name }))
   const { rounds, steps } = patternProgress(pattern)
-  const started = rounds.done > 0 || steps.done > 0 || pattern.timeSpent > 0 || Object.keys(pattern.roundNotes).length > 0
+  // chronomètre compris s'il tourne (la copie reçoit le temps de la séance en cours)
+  const [time] = useState(() => totalSeconds(pattern))
+  const started = rounds.done > 0 || steps.done > 0 || time > 0 || Object.keys(pattern.roundNotes).length > 0
   const [keep, setKeep] = useState(false)
   const progress = [
     rounds.total ? t('{d}/{n} rangs', { d: rounds.done, n: rounds.total }) : null,
     steps.total ? t('{d}/{n} étapes', { d: steps.done, n: steps.total }) : null,
-    pattern.timeSpent ? formatDuration(pattern.timeSpent) : null,
+    time ? formatDuration(time) : null,
   ].filter(Boolean).join(' · ')
 
   return (

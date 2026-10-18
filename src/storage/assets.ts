@@ -9,6 +9,8 @@ const KV = 'kv'
 let dbPromise: Promise<IDBDatabase | null> | null = null
 const memory = new Map<string, Blob>()
 const urlCache = new Map<string, string>()
+/** fichiers enregistrés pendant cette session : jamais supprimés par le ménage (ils ne sont peut-être pas encore rattachés à un patron) */
+const sessionIds = new Set<string>()
 
 // Seuls ces types sont servis tels quels : un fichier HTML ou SVG ouvert depuis une URL blob:
 // s'exécuterait avec l'origine de l'application (accès aux données). Le reste est téléchargé.
@@ -67,10 +69,22 @@ export async function blobToDataUrl(blob: Blob): Promise<string> {
   return `data:${blob.type || 'application/octet-stream'};base64,${btoa(bin)}`
 }
 
+/** Identifiant tiré du contenu : réimporter la même photo (sauvegarde, synchronisation) ne la duplique pas. */
+async function contentId(blob: Blob): Promise<string | null> {
+  try {
+    if (!globalThis.crypto?.subtle) return null
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))
+    return `h_${[...digest.subarray(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join('')}`
+  } catch {
+    return null
+  }
+}
+
 /** Enregistre un fichier (Blob ou URL data:) et renvoie son identifiant. */
 export async function putAsset(data: Blob | string): Promise<string> {
   const blob = typeof data === 'string' ? dataUrlToBlob(data) : data
-  const id = `a_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  const id = (await contentId(blob)) ?? `a_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  sessionIds.add(id)
   const stored = await run('readwrite', (s) => s.put(blob, id)).then(() => true, () => false)
   if (!stored || !(await openDb())) memory.set(id, blob)
   return id
@@ -101,10 +115,11 @@ export async function getAssetDataUrl(id: string | null | undefined): Promise<st
 
 /** Supprime les fichiers qui ne sont plus référencés par aucun patron. */
 export async function collectGarbage(keep: Set<string>): Promise<void> {
-  for (const id of [...memory.keys()]) if (!keep.has(id)) memory.delete(id)
+  const unused = (id: string) => !keep.has(id) && !sessionIds.has(id)
+  for (const id of [...memory.keys()]) if (unused(id)) memory.delete(id)
   const ids = await run('readonly', (s) => s.getAllKeys()).catch(() => undefined)
   for (const id of ids || []) {
-    if (typeof id === 'string' && !keep.has(id)) await run('readwrite', (s) => s.delete(id)).catch(() => undefined)
+    if (typeof id === 'string' && unused(id)) await run('readwrite', (s) => s.delete(id)).catch(() => undefined)
   }
 }
 

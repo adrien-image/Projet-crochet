@@ -61,11 +61,10 @@ export function photosOf(p: Pattern): PhotoRef[] {
   return [...cover, ...p.gallery.map((g) => ({ id: g.id || null, thumb: g.thumb, data: g.data }))]
 }
 
-/** Range les photos : la première devient la couverture, les autres la galerie. */
-export function setPhotos(p: Pattern, list: PhotoRef[]): Pattern {
+/** Champs du patron pour une liste de photos : la première devient la couverture, les autres la galerie. */
+export function photoFields(list: PhotoRef[]): Pick<Pattern, 'imageId' | 'thumb' | 'image' | 'gallery'> {
   const [cover, ...rest] = list
   return {
-    ...p,
     imageId: cover?.id ?? null,
     thumb: cover?.thumb ?? null,
     image: cover?.image ?? cover?.data ?? undefined,
@@ -74,4 +73,8 @@ export function setPhotos(p: Pattern, list: PhotoRef[]): Pattern {
       return { id: r.id ?? '', thumb: r.thumb, ...(data ? { data } : {}) }
     }),
   }
+}
+
+export function setPhotos(p: Pattern, list: PhotoRef[]): Pattern {
+  return { ...p, ...photoFields(list) }
 }

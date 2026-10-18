@@ -1,6 +1,6 @@
 // Pièces d'un patron (regroupement des rangs), partagées par le rendu tissu 2D et l'aperçu 3D.
 import type { Pattern, Round } from './types'
-import { headingColor, parseCords, sectionCopies, splitSections } from './parser'
+import { colorLegend, headingColor, parseCords, sectionCopies, splitSections } from './parser'
 import { DEFAULT_YARN, findYarnColor } from './colors'
 import { roundsOf } from './progress'
 
@@ -74,6 +74,7 @@ export function buildPieces(pattern: Pattern): Piece[] {
       color: fallback,
     })
   }
+  const legend = colorLegend(pattern.text)
   for (const p of pieces) {
     const names = [...new Set(p.sections.map(shortName))].filter(Boolean)
     p.label = names.join(' + ') || 'Pièce'
@@ -87,7 +88,7 @@ export function buildPieces(pattern: Pattern): Piece[] {
     p.stuffed = !p.flat && !p.flattened && !CONTAINER.test(`${p.label} ${pattern.name}`)
     // une pièce qui change de fil : les couleurs citées dans ses rangs ne sont pas celle de départ
     const changes = p.rounds.some((r) => r.color)
-    p.color = pattern.pieceColors?.[p.label] ?? headingColor(p.sections.join(' '), pattern.text) ?? (changes ? null : findYarnColor(ownYarn)) ?? fallback
+    p.color = pattern.pieceColors?.[p.label] ?? headingColor(p.sections.join(' '), legend) ?? (changes ? null : findYarnColor(ownYarn)) ?? fallback
   }
   return pieces
 }

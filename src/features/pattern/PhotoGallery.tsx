@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight, ImagePlus, Plus, Star, Trash2 } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
-import { MAX_GALLERY } from '../../storage/patterns'
-import { storePhotos } from '../../storage/photos'
+import { PHOTO_LIMIT, uploadPhotos } from './photoUpload'
 import { useAssetUrl } from '../../hooks/useAssetUrl'
-import { t, tn } from '../../i18n'
+import { t } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { FabricSwatch } from '../shared/FabricSwatch'
 import { photosOf, setPhotos, type PhotoRef, type Update } from './actions'
@@ -23,19 +22,18 @@ export function PhotoGallery({ pattern, update }: { pattern: Pattern, update: Up
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const index = Math.min(current, Math.max(0, photos.length - 1))
-  const room = MAX_GALLERY + 1 - photos.length
+  const room = PHOTO_LIMIT - photos.length
 
   const add = async (files: FileList | null) => {
     if (!files?.length) return
     setBusy(true)
     setError('')
-    const { photos: added, failed } = await storePhotos([...files].slice(0, room))
+    const { photos: added, error: problem } = await uploadPhotos(files, photos.length)
     if (added.length) {
       update((p) => setPhotos(p, [...photosOf(p), ...added]))
       setCurrent(photos.length)
     }
-    if (failed) setError(tn(failed, '{n} fichier n\'a pas pu être lu.', '{n} fichiers n\'ont pas pu être lus.'))
-    else if (files.length > room) setError(t('{m} photos au maximum par patron.', { m: MAX_GALLERY + 1 }))
+    setError(problem)
     setBusy(false)
   }
 

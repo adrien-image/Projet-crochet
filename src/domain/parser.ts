@@ -236,9 +236,12 @@ const LEGEND_RE = /^\s*(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC
 const INLINE_COLOR_RE = /\b(?:en|avec(?:\s+le)?(?:\s+fil)?|au\s+fil|fil|couleur|coloris|in|with|using|change\s+to|switch\s+to|changer\s+(?:pour|en|de\s+couleur\s*:?)|passer\s+(?:au|à|en)|prendre\s+le\s+fil)\s+(?:le\s+|la\s+|l['’]|du\s+|de\s+la\s+|the\s+)?([^,;.()\n]{2,40})/gi
 const PAREN_COLOR_RE = /\(([^()]{2,24})\)/g
 const CHANGE_LINE_RE = /\b(?:changer|change|switch|passer\s+au|prendre\s+le\s+fil|joindre\s+le\s+fil|attach|join\s+(?:new\s+)?(?:yarn|colou?r))\b/i
-const LETTER_REF_RE = /\b(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC\d?|CP|CS))\b/
+// « couleur C » aussi dans un titre en majuscules (« COULEUR C ») ; les codes MC / CC restent en
+// majuscules (« mc » est la maille coulée)
+const LETTER_REF_RE = /\b(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)\b/i
+const CODE_REF_RE = /\b(MC|CC\d?|CP|CS)\b/
 
-function colorLegend(text: string): Map<string, string> {
+export function colorLegend(text: string): Map<string, string> {
   const legend = new Map<string, string>()
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(LEGEND_RE)
@@ -250,9 +253,8 @@ function colorLegend(text: string): Map<string, string> {
 
 /** Couleur nommée dans une instruction (« en rose », « with CC », « (blanc) »), ou null. */
 function colorIn(line: string, legend: Map<string, string>): string | null {
-  const letter = line.match(LETTER_REF_RE)
-  if (letter) {
-    const c = legend.get((letter[1] || letter[2]).toUpperCase())
+  for (const ref of [line.match(LETTER_REF_RE)?.[1], line.match(CODE_REF_RE)?.[1]]) {
+    const c = ref && legend.get(ref.toUpperCase())
     if (c) return c
   }
   for (const m of line.matchAll(INLINE_COLOR_RE)) {
@@ -270,8 +272,8 @@ function colorIn(line: string, legend: Map<string, string>): string | null {
 }
 
 /** Couleur annoncée dans un titre de pièce (« AILES (x2, couleur C) », « TÊTE en beige »), légende comprise. */
-export function headingColor(heading: string, text: string): string | null {
-  return colorIn(heading, colorLegend(text)) ?? findYarnColor(heading)
+export function headingColor(heading: string, legend: Map<string, string>): string | null {
+  return colorIn(heading, legend) ?? findYarnColor(heading)
 }
 
 const CONTINUES_RE = /\bsuite\s+(?:du|de|des|d['’])|\bcontinued?\b|\(cont\.?\)/i

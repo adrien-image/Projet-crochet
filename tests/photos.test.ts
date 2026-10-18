@@ -1,8 +1,9 @@
 import { test, expect } from 'vitest'
-import { assetIds, duplicatePattern, MAX_GALLERY, needsAssetMigration, normalizePattern } from '../src/storage/patterns'
+import { applyStoredAssets, assetIds, duplicatePattern, exportBackup, importBackup, MAX_GALLERY, needsAssetMigration, normalizePattern, storeInlineAssets } from '../src/storage/patterns'
+import { collectGarbage, getAsset, putAsset } from '../src/storage/assets'
 import { photosOf, setPhotos } from '../src/features/pattern/actions'
 import { beePattern, samplePattern } from '../src/storage/samples'
-import { parsePattern } from '../src/domain/parser'
+import { colorLegend, headingColor, parsePattern } from '../src/domain/parser'
 import { buildPieces } from '../src/domain/pieces'
 import { estimateYarn } from '../src/domain/yarn'
 
@@ -63,4 +64,65 @@ test('exemple multicolore : rayures, ailes blanches, fil par couleur', () => {
   const pieces = buildPieces(bee)
   expect(pieces.map((p) => [p.label, p.color, p.copies])).toEqual([['CORPS', '#e8c34a', 1], ['AILES', '#f4f1ea', 2]])
   expect(estimateYarn(bee).byColor.map((c) => c.color).sort()).toEqual(['#2a2a2d', '#e8c34a', '#f4f1ea'])
+})
+
+
+test('migration : appliquée à l\'état actuel, les modifications faites entre-temps sont gardées', async () => {
+  const before = normalizePattern({ gallery: [{ data: PNG }], roundNotes: { k: { text: 'avant', photoData: PNG } } })
+  const stored = (await storeInlineAssets(before))!
+  // pendant l'enregistrement : une photo ajoutée, la note modifiée
+  const current = { ...before, gallery: [...before.gallery, { id: 'new', thumb: null }], roundNotes: { k: { ...before.roundNotes.k, text: 'après' } } }
+  const after = applyStoredAssets(current, stored)
+  expect(after.gallery.map((g) => [!!g.id, !!g.data])).toEqual([[true, false], [true, false]])
+  expect(after.gallery[1].id).toBe('new')
+  expect(after.roundNotes.k.text).toBe('après')
+  expect(after.roundNotes.k.photoId).toBe(after.gallery[0].id)
+  expect(after.roundNotes.k.photoData).toBeUndefined()
+  expect(needsAssetMigration(after)).toBe(false)
+})
+
+test('fichiers : identifiant tiré du contenu, jamais supprimés pendant la session qui les a créés', async () => {
+  const a = await putAsset(PNG)
+  expect(await putAsset(PNG)).toBe(a)
+  expect(a).toMatch(/^h_[0-9a-f]{32}$/)
+  await collectGarbage(new Set())
+  expect(await getAsset(a)).not.toBeNull()
+})
+
+test('duplication : la séance de chronomètre en cours est comptée', () => {
+  const t0 = Date.parse('2026-05-01T10:00:00Z')
+  const src = { ...normalizePattern({ timeSpent: 60 }), timerStartedAt: new Date(t0).toISOString() }
+  const copy = duplicatePattern(src, true, 'x', t0 + 30 * 60e3)
+  expect(copy.timeSpent).toBe(60 + 30 * 60)
+  expect(copy.timerStartedAt).toBeNull()
+  expect(copy.sessions.length).toBe(1)
+  expect(duplicatePattern(src, false, 'y', t0 + 30 * 60e3).timeSpent).toBe(0)
+})
+
+test('photos : une couverture sans fichier (miniature seule) reste dans la galerie après rechargement', () => {
+  const p = normalizePattern({ thumb: PNG.replace('png', 'jpeg') })
+  const [legacy] = photosOf(p)
+  const moved = setPhotos(p, [{ id: 'new', thumb: null }, legacy])
+  expect(normalizePattern(JSON.parse(JSON.stringify(moved))).gallery.length).toBe(1)
+})
+
+test('couleurs : référence de légende dans un titre en majuscules, « mc » reste une maille', () => {
+  const legend = colorLegend('Couleur C : blanc\nMC: grey')
+  expect(headingColor('AILES (X2, COULEUR C)', legend)).toBe('#f4f1ea')
+  expect(headingColor('BODY (MC)', legend)).toBe('#9b9a9c')
+  expect(parsePattern('MC: grey\nCORPS\nR1 : 6 mc dans la boucle (6)')[0].color).toBeNull()
+})
+
+test('sauvegarde : import sans data: dans la bibliothèque, synchronisation sans les grandes photos', async () => {
+  const imported = await importBackup(new Blob([JSON.stringify({ patterns: [{ name: 'i', gallery: [{ data: PNG }], roundNotes: { k: { text: '', photoData: PNG } } }] })]))
+  expect(needsAssetMigration(imported[0])).toBe(false)
+  expect(imported[0].gallery[0].id).toBeTruthy()
+  const p = normalizePattern({ gallery: [{ id: imported[0].gallery[0].id, thumb: null }], roundNotes: { k: { text: 'n', photoId: imported[0].gallery[0].id } } })
+  const full = JSON.parse(await (await exportBackup([p])).text()).patterns[0]
+  expect(full.gallery[0].data).toMatch(/^data:image\/png/)
+  expect(full.roundNotes.k.photoData).toMatch(/^data:image\/png/)
+  const light = JSON.parse(await (await exportBackup([p], { photos: false })).text()).patterns[0]
+  expect(light.gallery[0]).toEqual({ id: p.gallery[0].id, thumb: null })
+  expect(light.roundNotes.k.photoData).toBeUndefined()
+  expect(light.roundNotes.k.photoId).toBe(p.gallery[0].id)
 })

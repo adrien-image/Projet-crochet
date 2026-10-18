@@ -108,6 +108,8 @@ tests/         tests unitaires      e2e/   tests Playwright      docs/REVIEW.md 
 
 - Données locales au navigateur ; la synchronisation par fichier n'existe que sur Chrome / Edge
   (ailleurs : export / import ou lien de partage)
+- La synchronisation transporte la couverture et le fichier joint ; les autres photos (galerie,
+  notes de rang) n'y passent qu'en miniature : l'export / import les transporte en entier
 - L'assemblage 3D est une estimation à partir des noms de pièces (corrigeable à la main) ; les pièces
   non reconnues sont posées à côté
 - Mailles dans les arceaux comptées sans contrôle ; motifs jacquard (plusieurs couleurs dans un même

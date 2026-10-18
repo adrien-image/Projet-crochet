@@ -2,21 +2,14 @@ import { useMemo, useState } from 'react'
 import { FileSearch, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
 import { getAsset, putAsset } from '../../storage/assets'
-import { storePhotos } from '../../storage/photos'
-import { MAX_GALLERY } from '../../storage/patterns'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
 import { t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
-import { photosOf, setPhotos, type PhotoRef } from './actions'
+import { photoFields, photosOf, type PhotoRef } from './actions'
+import { PHOTO_LIMIT, uploadPhotos } from './photoUpload'
 import { PhotoImage } from './PhotoGallery'
 
 const MAX_FILE_MB = 25
-
-/** Couverture et galerie à partir de la liste ordonnée des photos. */
-function photoFields(list: PhotoRef[]) {
-  const { imageId, thumb, image, gallery } = setPhotos({ imageId: null, thumb: null, gallery: [] } as unknown as Pattern, list)
-  return { imageId, thumb, image: image ?? null, gallery }
-}
 
 export type PatternDraft = Omit<Pattern, 'id' | 'createdAt' | 'updatedAt' | 'checklist' | 'roundsDone' | 'stitchCounter' | 'pieceColors'
   | 'roundNotes' | 'placements' | 'timeSpent' | 'timerStartedAt' | 'sessions' | 'gallery'> & Partial<Pattern>
@@ -47,16 +40,15 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const stats = useMemo(() => patternStats(parsePattern(text, { notation, size: effectiveSize })), [text, notation, effectiveSize])
   const isPdf = file.fileType === 'application/pdf' || /\.pdf$/i.test(file.fileName ?? '')
 
-  const room = MAX_GALLERY + 1 - photos.length
+  const room = PHOTO_LIMIT - photos.length
   const onImages = async (files: FileList | null) => {
     if (!files?.length) return
     setBusy(t('Chargement…'))
     setError('')
     try {
-      const { photos: added, failed } = await storePhotos([...files].slice(0, room))
+      const { photos: added, error: problem } = await uploadPhotos(files, photos.length)
       setPhotoList((list) => [...list, ...added])
-      if (failed) setError(tn(failed, '{n} fichier n\'a pas pu être lu.', '{n} fichiers n\'ont pas pu être lus.'))
-      else if (files.length > room) setError(t('{m} photos au maximum par patron.', { m: MAX_GALLERY + 1 }))
+      setError(problem)
     } finally {
       setBusy(null)
     }

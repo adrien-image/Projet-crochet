@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Pattern } from '../domain/types'
-import { loadPatterns, savePatterns, migratePatternAssets, needsAssetMigration, assetIds } from '../storage/patterns'
+import { loadPatterns, savePatterns, storeInlineAssets, applyStoredAssets, needsAssetMigration, assetIds } from '../storage/patterns'
 import { collectGarbage } from '../storage/assets'
 
 const SAVE_DELAY = 400
@@ -54,8 +54,9 @@ export function usePatterns(onSaveError: () => void) {
     for (const p of patterns) {
       if (!needsAssetMigration(p) || migrating.current.has(p.id)) continue
       migrating.current.add(p.id)
-      migratePatternAssets(p).then((patch) => {
-        if (patch) setPatterns((ps) => ps.map((x) => (x.id === p.id ? { ...x, ...patch } : x)))
+      storeInlineAssets(p).then((stored) => {
+        // appliqué à l'état actuel : les modifications faites pendant l'enregistrement sont gardées
+        if (stored) setPatterns((ps) => ps.map((x) => (x.id === p.id ? applyStoredAssets(x, stored) : x)))
       }).catch(() => {}).finally(() => migrating.current.delete(p.id))
     }
   }, [patterns])
