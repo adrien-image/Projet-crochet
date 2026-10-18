@@ -128,10 +128,25 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
     })
   }
 
-  const addPatterns = (list: Pattern[]) => setPatterns((ps) => {
-    const ids = new Set(ps.map((p) => p.id))
-    return [...list.map((p) => (ids.has(p.id) ? { ...p, id: uid() } : p)), ...ps]
-  })
+  const addPatterns = (list: Pattern[]) => {
+    // un patron réimporté après sa suppression ne doit pas être re-supprimé par la synchronisation
+    updateSettings((s) => {
+      if (!list.some((p) => s.deleted[p.id])) return s
+      const deleted = { ...s.deleted }
+      for (const p of list) delete deleted[p.id]
+      return { ...s, deleted }
+    })
+    setPatterns((ps) => {
+      // identifiants uniques, y compris entre patrons du même fichier
+      const ids = new Set(ps.map((p) => p.id))
+      const added = list.map((p) => {
+        const id = ids.has(p.id) ? uid() : p.id
+        ids.add(id)
+        return id === p.id ? p : { ...p, id }
+      })
+      return [...added, ...ps]
+    })
+  }
 
   const onImport = async (file: File) => {
     protect()

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Pattern } from '../domain/types'
-import { loadPatterns, savePatterns, storeInlineAssets, applyStoredAssets, needsAssetMigration, assetIds } from '../storage/patterns'
+import { loadPatterns, savePatterns, storeInlineAssets, applyStoredAssets, needsAssetMigration, assetIds, normalizePattern, STORAGE_KEY } from '../storage/patterns'
+import { loadSettings } from '../storage/settings'
+import { mergeLibraries } from '../storage/sync'
 import { collectGarbage } from '../storage/assets'
 
 const SAVE_DELAY = 400
@@ -27,10 +29,13 @@ export function usePatterns(onSaveError: () => void) {
   }, [])
 
   const first = useRef(true)
+  // liste reprise telle quelle d'un autre onglet : déjà enregistrée, ne pas la réécrire (sinon ping-pong)
+  const external = useRef(false)
   useEffect(() => {
     latest.current = patterns
-    if (first.current) {
+    if (first.current || external.current) {
       first.current = false
+      external.current = false
       return
     }
     dirty.current = true
@@ -48,6 +53,32 @@ export function usePatterns(onSaveError: () => void) {
       document.removeEventListener('visibilitychange', onHide)
     }
   }, [flush])
+
+  // l'application ouverte dans un autre onglet (ou la PWA installée) a enregistré sa bibliothèque :
+  // on la reprend, sinon le prochain enregistrement d'ici effacerait ses modifications
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue == null) return
+      let incoming: Pattern[]
+      try {
+        const data = JSON.parse(e.newValue)
+        if (!Array.isArray(data)) return
+        incoming = data.filter((p) => p && typeof p === 'object').map(normalizePattern)
+      } catch {
+        return
+      }
+      if (!dirty.current) {
+        external.current = true
+        setPatterns(incoming)
+        return
+      }
+      // des modifications d'ici pas encore enregistrées : fusion (le plus récent gagne, suppressions comprises)
+      const { deleted } = loadSettings()
+      setPatterns((current) => mergeLibraries(current, incoming, deleted, deleted).patterns)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   // anciens fichiers en data: (ou import) → IndexedDB
   useEffect(() => {

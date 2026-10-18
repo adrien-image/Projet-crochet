@@ -8,11 +8,20 @@ export interface Route {
   tab: PatternTab
 }
 
+/** adresse abîmée (« %E0%A4 ») : on revient à la bibliothèque au lieu de planter */
+function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return null
+  }
+}
+
 // #/patron/<id>[/<onglet>] : bouton « retour », rechargement et liens directs fonctionnent.
 function parse(): Route {
   const m = window.location.hash.match(/^#\/patron\/([^/]+)(?:\/([a-z0-9]+))?/)
   const tab = (m?.[2] ?? 'patron') as PatternTab
-  return { patternId: m ? decodeURIComponent(m[1]) : null, tab: TABS.includes(tab) ? tab : 'patron' }
+  return { patternId: m ? safeDecode(m[1]) : null, tab: TABS.includes(tab) ? tab : 'patron' }
 }
 
 export function routeHash(r: Route): string {

@@ -40,3 +40,18 @@ test('import : les clés __proto__ ne modifient pas les objets', () => {
   expect(({} as Record<string, unknown>).text).toBeUndefined()
   expect(cleanDeleted(JSON.parse('{"a":"2026-01-01T00:00:00Z","b":3,"c":"pas une date","__proto__":"x"}'))).toEqual({ a: '2026-01-01T00:00:00Z' })
 })
+
+test('import : une pièce jointe abîmée n\'empêche pas d\'importer le reste', async () => {
+  const { importBackup } = await import('../src/storage/patterns')
+  const list = await importBackup(new Blob([JSON.stringify({ patterns: [
+    { name: 'abîmé', text: 'R1 : 6 ms (6)', fileData: 'data:text/plain,%E0', fileName: 'x.txt', image: 'data:image/png;base64,***', gallery: [{ data: 'data:image/png;base64,***', thumb: null }] },
+    { name: 'sain', text: 'R1 : 6 ms (6)' },
+  ] })]))
+  expect(list.map((p) => p.name)).toEqual(['abîmé', 'sain'])
+  const [bad] = list
+  expect([bad.fileData, bad.fileName, bad.image, bad.gallery]).toEqual([undefined, null, undefined, []])
+})
+
+test('synchronisation : une date de suppression dans le futur est ignorée', () => {
+  expect(cleanDeleted({ a: '9999-01-01T00:00:00Z', b: new Date().toISOString() })).toEqual({ b: expect.any(String) })
+})

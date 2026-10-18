@@ -10,7 +10,7 @@ import { uid } from './util'
 
 export { uid }
 
-const STORAGE_KEY = 'crochet.patterns.v1'
+export const STORAGE_KEY = 'crochet.patterns.v1'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const HEX = /^#[0-9a-f]{6}$/i
@@ -177,15 +177,21 @@ export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string
   return copy
 }
 
-/** data: → fichier enregistré dans IndexedDB (et sa miniature) */
-export type StoredAssets = Map<string, { id: string, thumb: string | null }>
+/** data: → fichier enregistré dans IndexedDB (et sa miniature), ou null s'il est illisible */
+export type StoredAssets = Map<string, { id: string, thumb: string | null } | null>
 
 /** Enregistre dans IndexedDB les fichiers encore en data: (ancien format, import, synchronisation). */
 export async function storeInlineAssets(p: Pattern): Promise<StoredAssets | null> {
   if (!needsAssetMigration(p)) return null
   const stored: StoredAssets = new Map()
   const put = async (data: string, thumbSize: number | null) => {
-    if (!stored.has(data)) stored.set(data, { id: await putAsset(data), thumb: thumbSize ? await makeThumbnail(data, thumbSize) : null })
+    if (stored.has(data)) return
+    try {
+      stored.set(data, { id: await putAsset(data), thumb: thumbSize ? await makeThumbnail(data, thumbSize) : null })
+    } catch {
+      // base64 abîmé, encodage invalide : seul ce fichier est abandonné, pas tout l'import
+      stored.set(data, null)
+    }
   }
   if (p.image) await put(p.image, 320)
   if (p.fileData) await put(p.fileData, null)
@@ -199,20 +205,24 @@ export async function storeInlineAssets(p: Pattern): Promise<StoredAssets | null
  * ce que l'utilisateur a modifié pendant l'enregistrement (photo ajoutée, note…) est conservé.
  */
 export function applyStoredAssets(p: Pattern, stored: StoredAssets): Pattern {
+  // `null` : fichier illisible, retiré (sinon la migration recommencerait à chaque démarrage)
   const next: Pattern = { ...p }
   const cover = p.image ? stored.get(p.image) : undefined
   if (cover) Object.assign(next, { imageId: cover.id, thumb: cover.thumb ?? p.thumb, image: undefined })
+  else if (cover === null) next.image = undefined
   const file = p.fileData ? stored.get(p.fileData) : undefined
   if (file) Object.assign(next, { fileId: file.id, fileType: p.fileData!.match(/^data:([^;,]+)/)?.[1] ?? p.fileType, fileData: undefined })
-  next.gallery = p.gallery.map((g) => {
+  else if (file === null) Object.assign(next, { fileData: undefined, fileName: null, fileType: null })
+  next.gallery = p.gallery.flatMap((g) => {
     const s = g.data ? stored.get(g.data) : undefined
-    return s ? { id: s.id, thumb: g.thumb ?? s.thumb } : g
+    if (s === null) return g.thumb ? [{ id: '', thumb: g.thumb }] : []
+    return [s ? { id: s.id, thumb: g.thumb ?? s.thumb } : g]
   })
   next.roundNotes = Object.fromEntries(Object.entries(p.roundNotes).map(([k, n]) => {
     const s = n.photoData ? stored.get(n.photoData) : undefined
-    if (!s) return [k, n]
+    if (s === undefined) return [k, n]
     const { photoData: _data, ...note } = n
-    return [k, { ...note, photoId: s.id, photoThumb: note.photoThumb ?? s.thumb }]
+    return [k, s ? { ...note, photoId: s.id, photoThumb: note.photoThumb ?? s.thumb } : note]
   }))
   return next
 }

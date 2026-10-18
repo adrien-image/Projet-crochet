@@ -111,7 +111,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const submit = () => {
     if (!name.trim() || busy) return
     onSave({
-      ...(initial ?? {}),
+      // seulement les champs du formulaire : la progression faite pendant l'édition (autre onglet,
+      // synchronisation) n'est pas écrasée par l'état du patron à l'ouverture
+      id: initial?.id,
       name: name.trim(),
       description: description.trim(),
       tags: [...new Set(tags.split(',').map((tg) => tg.trim().replace(/^#/, '')).filter(Boolean))],
