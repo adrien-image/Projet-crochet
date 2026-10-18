@@ -1,78 +1,48 @@
-import { useMemo } from 'react'
-import { parsePattern, stitchCount, STITCH_INFO } from './patternParser'
+import { GlyphShape } from './StitchGlyph'
+import { sectionColor } from './colors'
+import { chartLayout, directionArrow, CHART_SIZE, RING_R } from './glyphs'
 
-const RING_R = 46
-
-function polar(cx, cy, r, angleDeg) {
-  const a = ((angleDeg - 90) * Math.PI) / 180
-  return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
-}
-
-export default function RoundChart({ round, index, totalRounds, done, active, onClick }) {
-  const n = Math.max(round.stitches.length, 1)
-  const cx = 60
-  const cy = 60
-  const gap = 360 / n
-
-  const nodes = round.stitches.map((type, i) => {
-    const [x, y] = polar(cx, cy, RING_R, i * gap)
-    return { type, x, y }
-  })
-
-  const sectionColor = useMemo(() => {
-    const palette = ['#c2703d', '#7a9a65', '#5b7fa6', '#a65b7f', '#a68f5b']
-    let h = 0
-    for (const c of round.section || '') h = (h * 31 + c.charCodeAt(0)) % 997
-    return palette[h % palette.length]
-  }, [round.section])
+export default function RoundChart({ round, done, active, onClick }) {
+  const layout = chartLayout(round)
+  const c = CHART_SIZE / 2
+  const color = done ? 'var(--done)' : sectionColor(round.section)
+  const warn = !round.valid || round.fits === false
+  const sw = layout.s < 3 ? 1.1 : 1.5
 
   return (
     <button
+      type="button"
       className={`round-card ${active ? 'active' : ''} ${done ? 'done' : ''}`}
       onClick={onClick}
-      title={round.section ? `${round.section} — ${round.label}` : round.label}
+      aria-pressed={active}
+      title={round.text}
     >
-      <svg viewBox="0 0 120 120" width="120" height="120">
-        <circle cx={cx} cy={cy} r={RING_R} fill="none"
-          stroke={done ? '#a9c39a' : 'var(--border)'} strokeWidth="2" strokeDasharray="3 3" />
-        {nodes.map((nd, i) => {
-          const angle = i * gap
-          const rad = ((angle - 90) * Math.PI) / 180
-          const symbolColor = done ? '#6b8f5e' : sectionColor
-          const symbol = STITCH_INFO[nd.type]?.symbol ?? '?'
-          return symbol === '✕' ? (
-            <line key={i} x1={nd.x - 4 * Math.cos(rad + 0.785)} y1={nd.y - 4 * Math.sin(rad + 0.785)}
-              x2={nd.x + 4 * Math.cos(rad + 0.785)} y2={nd.y + 4 * Math.sin(rad + 0.785)}
-              stroke={symbolColor} strokeWidth="1.6" />
-          ) : symbol === 'T' ? (
-            <line key={i} x1={nd.x} y1={nd.y - 5} x2={nd.x} y2={nd.y + 4} stroke={symbolColor} strokeWidth="1.6" />
-          ) : symbol === 'V' ? (
-            <path key={i} d={`M ${nd.x - 4} ${nd.y + 3} L ${nd.x} ${nd.y - 4} L ${nd.x + 4} ${nd.y + 3}`}
-              fill="none" stroke={symbolColor} strokeWidth="1.6" />
-          ) : symbol === '∧' ? (
-            <path key={i} d={`M ${nd.x - 4} ${nd.y - 3} L ${nd.x} ${nd.y + 4} L ${nd.x + 4} ${nd.y - 3}`}
-              fill="none" stroke={symbolColor} strokeWidth="1.6" />
-          ) : symbol === '·' ? (
-            <circle key={i} cx={nd.x} cy={nd.y} r="1.4" fill={symbolColor} />
-          ) : (
-            <circle key={i} cx={nd.x} cy={nd.y} r="2.6" fill="none" stroke={symbolColor} strokeWidth="1.3" />
-          )
-        })}
-        <text x={cx} y={cy + 3} textAnchor="middle" fontSize="11" fontWeight="600"
-          fill={done ? '#6b8f5e' : 'var(--text)'}>
+      <svg viewBox={`0 0 ${CHART_SIZE} ${CHART_SIZE}`} width={CHART_SIZE} height={CHART_SIZE} aria-hidden="true">
+        {layout.flat ? (
+          <line x1="8" x2={CHART_SIZE - 8} y1={c + 11} y2={c + 11} strokeWidth="1.5" strokeDasharray="3 3"
+            style={{ stroke: done ? 'var(--done-border)' : 'var(--border)' }} />
+        ) : (
+          <circle cx={c} cy={c} r={RING_R} fill="none" strokeWidth="1.5" strokeDasharray="3 3"
+            style={{ stroke: done ? 'var(--done-border)' : 'var(--border)' }} />
+        )}
+        <path d={directionArrow(layout)} fill="none" strokeWidth="1.2" strokeLinecap="round"
+          style={{ stroke: 'var(--muted)' }} opacity="0.6" />
+        {layout.nodes.map((nd, i) => (
+          <GlyphShape key={i} type={nd.type} s={layout.s} color={color} strokeWidth={sw}
+            transform={`translate(${nd.x.toFixed(2)} ${nd.y.toFixed(2)}) rotate(${nd.rot.toFixed(1)})`} />
+        ))}
+        <text x={c} y={layout.flat ? c - 16 : c + 4} textAnchor="middle" fontSize="12" fontWeight="600"
+          style={{ fill: done ? 'var(--done)' : 'var(--text)' }}>
           {round.label}
         </text>
       </svg>
-      <div className="round-meta">
-        <span className="pill" style={{ borderColor: sectionColor, color: sectionColor }}>
-          {stitchCount(round.stitches)} mailles
-        </span>
-        {round.expected != null && !round.valid && <span className="pill warn">⚠ attendu {round.expected}</span>}
-      </div>
-      {round.section && <div className="round-section" title={round.section}>{round.section}</div>}
-      {index != null && totalRounds != null && (
-        <div className="round-state">{done ? '✓ fait' : `${index + 1}/${totalRounds}`}</div>
-      )}
+      <span className="round-meta">
+        <span className="pill" style={{ borderColor: color, color }}>{round.count} m.</span>
+        {round.loop && <span className="pill" title={round.loop === 'blo' ? 'Brin arrière' : 'Brin avant'}>
+          {round.loop === 'blo' ? 'BArr' : 'BAv'}</span>}
+        {warn && <span className="pill warn" title="Compte incohérent">⚠</span>}
+        {done && <span className="pill ok">✓</span>}
+      </span>
     </button>
   )
 }
