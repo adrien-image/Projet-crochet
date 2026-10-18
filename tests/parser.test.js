@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePattern, patternStats, sectionCopies, detectNotation } from '../src/patternParser.js'
+import { parsePattern, patternStats, sectionCopies, detectNotation, detectSizes, remapRoundKeys } from '../src/patternParser.js'
 import { samplePattern, heartPattern } from '../src/storage.js'
 
 const one = (text) => parsePattern(text)
@@ -8,9 +8,9 @@ const counts = (text) => parsePattern(text).map((r) => r.count)
 
 test('patrons d\'exemple : rangs, sections et comptes cohérents', () => {
   const mouse = patternStats(parsePattern(samplePattern().text))
-  assert.deepEqual(mouse, { rounds: 27, sections: 3, invalid: 0, misfit: 0 })
+  assert.deepEqual(mouse, { rounds: 30, sections: 3, pieces: 2, invalid: 0, misfit: 0 })
   const heart = patternStats(parsePattern(heartPattern().text))
-  assert.deepEqual(heart, { rounds: 35, sections: 3, invalid: 0, misfit: 0 })
+  assert.deepEqual(heart, { rounds: 35, sections: 3, pieces: 3, invalid: 0, misfit: 0 })
 })
 
 test('notation française, répétitions et « dans chaque maille »', () => {
@@ -81,4 +81,57 @@ test('nombre d\'exemplaires d\'une pièce', () => {
 test('entrée vide', () => {
   assert.deepEqual(parsePattern(''), [])
   assert.deepEqual(parsePattern(null), [])
+})
+
+test('répétitions US à une étoile et « N more times »', () => {
+  assert.deepEqual(counts('Rnd 1: 6 sc (6)\nRnd 2: *sc, inc; rep from * 2 more times (9)\nRnd 3: *2 sc, inc* répéter encore 2 fois (12)'), [6, 9, 12])
+})
+
+test('augmentations et diminutions triples', () => {
+  const r = one('R1: 6 sc (6)\nR2: 3 sc in each st around (18)\nR3: sc3tog 6 times (6)\nR4: 2 sc, 3 ms dans la même maille, 3 sc (8)')
+  assert.deepEqual(r.map((x) => x.count), [6, 18, 6, 8])
+  assert.ok(r.every((x) => x.valid && x.fits !== false))
+})
+
+test('brin arrière / avant', () => {
+  const r = one('R1: 6 sc\nR2: 6 sc in BLO\nR3 : 6 ms dans le brin avant')
+  assert.deepEqual(r.map((x) => x.loop), [null, 'blo', 'flo'])
+})
+
+test('rangs aller-retour (à plat)', () => {
+  const r = one('Row 1: 20 sc, ch 1, turn (20)\nRow 2: sc across (20)\nR3 : 20 ms, 1 ml, tourner (20)\nR4 : 6 ms')
+  assert.deepEqual(r.map((x) => x.flat), [true, true, true, false])
+  assert.ok(r.slice(0, 3).every((x) => x.count === 20 && x.valid))
+})
+
+test('patrons multi-tailles', () => {
+  const text = 'R1: 6 (8, 10) sc (6, 8, 10)\nR2: inc around (12, 16, 20)\nR3: 12 (16, 20) sc'
+  assert.equal(detectSizes(text), 3)
+  assert.equal(detectSizes('R1 : 6 ms (6)'), 1)
+  for (const [size, c] of [[0, 6], [1, 8], [2, 10]]) {
+    const r = parsePattern(text, { size })
+    assert.deepEqual(r.map((x) => x.count), [c, 2 * c, 2 * c])
+    assert.ok(r.every((x) => x.valid))
+  }
+})
+
+test('une section « suite du … » prolonge la pièce précédente', () => {
+  const r = parsePattern(samplePattern().text)
+  const museau = r.find((x) => x.section.startsWith('MUSEAU'))
+  const corps = r.find((x) => x.section.startsWith('CORPS'))
+  assert.equal(museau.piece, corps.piece)
+  assert.equal(corps.fits, true) // R14 (36) se travaille sur R13 (36)
+})
+
+test('les rangs cochés survivent au renommage d\'une section', () => {
+  const before = parsePattern('TETE\nR1: 6 sc\nR2: 12 sc\nBRAS\nR1: 4 sc')
+  const after = parsePattern('TÊTE RONDE\nR1: 6 sc\nR2: 12 sc\nR3: 12 sc\nBRAS\nR1: 4 sc')
+  const done = [before[1].key, before[2].key]
+  assert.deepEqual(remapRoundKeys(before, after, done), [after[1].key, after[3].key])
+})
+
+test('mailles dans un arceau : pas de fausse alerte de cohérence', () => {
+  const r = one('R1: 12 sc (12)\nR2: *ch 3, skip 2, sc in next* x4\nR3: 5 sc in each ch-3 sp around (20)\nR4 : 3 ms dans chaque arceau')
+  assert.equal(r[2].fits, null)
+  assert.equal(r[3].fits, null)
 })

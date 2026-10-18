@@ -13,9 +13,11 @@ function stubContext() {
   return { ctx, calls }
 }
 
-test('scène de la souris : une pièce par section, oreilles en double', () => {
+test('scène de la souris : museau + corps en une pièce, oreilles en double', () => {
   const scene = buildScene(parsePattern(samplePattern().text))
-  assert.equal(scene.meshes.length, 4)
+  assert.deepEqual(scene.meshes.map((m) => m.label), ['MUSEAU + CORPS', 'OREILLES', 'OREILLES'])
+  assert.equal(scene.meshes[0].doubleSided, false) // fermé (6 mailles au dernier rang)
+  assert.equal(scene.meshes[1].doubleSided, true) // oreille ouverte (24 mailles)
   const { ctx, calls } = stubContext()
   const drawn = renderScene(ctx, scene, 600, 400, { yaw: 0.5, pitch: -0.35 })
   assert.ok(drawn > 0)
@@ -32,4 +34,16 @@ test('élimination des faces arrière : environ la moitié d\'un cylindre est vi
 
 test('pas de scène sans rang', () => {
   assert.equal(buildScene(parsePattern('Aucun rang ici')), null)
+})
+
+test('travail à plat : panneau double face', () => {
+  const scene = buildScene(parsePattern('Row 1: 20 sc, turn (20)\nRow 2: 20 sc, turn (20)\nRow 3: 20 sc (20)'))
+  const m = scene.meshes[0]
+  assert.equal(m.flatPanel, true)
+  assert.ok(m.vertices.every((v) => v[2] === 0))
+  // visible de face comme de dos
+  const front = renderScene(stubContext().ctx, scene, 400, 400, { yaw: 0, pitch: 0 })
+  const back = renderScene(stubContext().ctx, scene, 400, 400, { yaw: Math.PI, pitch: 0 })
+  assert.equal(front, m.faces.length)
+  assert.equal(back, m.faces.length)
 })

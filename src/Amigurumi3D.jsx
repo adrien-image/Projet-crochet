@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { parsePattern } from './patternParser'
+import { roundsOf } from './progress'
 import { buildScene, renderScene } from './engine3d'
 
 const INITIAL_VIEW = { yaw: 0.5, pitch: -0.35, zoom: 1 }
@@ -15,12 +15,13 @@ export default function Amigurumi3D({ pattern }) {
   const autoRef = useRef(auto)
   useEffect(() => { autoRef.current = auto }, [auto])
 
-  const scene = useMemo(() => buildScene(parsePattern(pattern.text)), [pattern.text])
+  const rounds = roundsOf(pattern)
+  const scene = useMemo(() => buildScene(rounds), [rounds])
   const legend = useMemo(() => {
     if (!scene) return []
     const seen = new Map()
     for (const m of scene.meshes) {
-      const key = m.section || 'Pièce'
+      const key = m.label
       seen.set(key, { color: m.color, count: (seen.get(key)?.count ?? 0) + 1 })
     }
     return [...seen.entries()]
@@ -119,7 +120,7 @@ export default function Amigurumi3D({ pattern }) {
           </span>
         ))}
       </div>
-      <p className="hint-3d">Glissez pour tourner · molette pour zoomer · chaque section du patron est une pièce distincte (anneaux empilés, rayon proportionnel au nombre de mailles)</p>
+      <p className="hint-3d">Glissez pour tourner · molette pour zoomer · chaque pièce est reconstruite à partir des comptes de mailles (rayon ∝ nombre de mailles)</p>
     </div>
   )
 }

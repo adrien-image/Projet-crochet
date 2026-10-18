@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { parsePattern, patternStats, STITCH_INFO } from './patternParser'
-import { roundItemText } from './storage'
+import { patternStats, STITCH_INFO } from './patternParser'
+import { roundsOf } from './progress'
 import { sectionColor } from './colors'
+import { chartsToSvg, downloadText } from './chartExport'
 import RoundChart from './RoundChart'
 import StitchGlyph from './StitchGlyph'
 
@@ -17,9 +18,11 @@ function groupBySection(rounds) {
   return groups
 }
 
+const fileSlug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
+
 export default function Visualizer({ pattern, onSetRounds }) {
   const [activeRound, setActiveRound] = useState(0)
-  const rounds = useMemo(() => parsePattern(pattern.text), [pattern.text])
+  const rounds = roundsOf(pattern)
   const groups = useMemo(() => groupBySection(rounds), [rounds])
 
   if (rounds.length === 0) {
@@ -33,15 +36,12 @@ export default function Visualizer({ pattern, onSetRounds }) {
     )
   }
 
-  const doneIds = new Set(pattern.checklist.filter((i) => i.done).map((i) => i.id))
+  const doneIds = new Set(pattern.roundsDone)
   const activeIdx = Math.min(activeRound, rounds.length - 1)
   const active = rounds[activeIdx]
   const isDone = (idx) => doneIds.has(rounds[idx].key)
   const doneCount = rounds.filter((r) => doneIds.has(r.key)).length
   const stats = patternStats(rounds)
-
-  const setDone = (indices, done) =>
-    onSetRounds(indices.map((i) => ({ id: rounds[i].key, text: roundItemText(rounds[i]) })), done)
 
   const breakdown = Object.entries(active.stitches.reduce((acc, s) => {
     acc[s] = (acc[s] || 0) + 1
@@ -58,16 +58,27 @@ export default function Visualizer({ pattern, onSetRounds }) {
     }
   }
 
+  const exportSvg = () => downloadText(
+    chartsToSvg(pattern.name, rounds, doneIds), `${fileSlug(pattern.name) || 'patron'}-rangs.svg`, 'image/svg+xml',
+  )
+
   return (
     <div className="viz">
       <div className="viz-list" onKeyDown={onKeyDown}>
-        <p className="viz-summary">
-          {stats.rounds} rangs · {stats.sections} pièce{stats.sections > 1 ? 's' : ''} ·{' '}
-          <strong>{doneCount}/{rounds.length} faits</strong>
-          {(stats.invalid > 0 || stats.misfit > 0) && (
-            <span className="warn-msg"> · ⚠ {stats.invalid + stats.misfit} rang(s) à vérifier</span>
-          )}
-        </p>
+        <h3 className="print-only">{pattern.name}</h3>
+        <div className="viz-toolbar">
+          <p className="viz-summary">
+            {stats.rounds} rangs · {stats.pieces} pièce{stats.pieces > 1 ? 's' : ''} ·{' '}
+            <strong>{doneCount}/{rounds.length} faits</strong>
+            {(stats.invalid > 0 || stats.misfit > 0) && (
+              <span className="warn-msg"> · ⚠ {stats.invalid + stats.misfit} rang(s) à vérifier</span>
+            )}
+          </p>
+          <div className="viz-export no-print">
+            <button type="button" className="btn small secondary" onClick={exportSvg}>⬇ SVG</button>
+            <button type="button" className="btn small secondary" onClick={() => window.print()}>🖨 Imprimer</button>
+          </div>
+        </div>
         {groups.map((g, gi) => (
           <section key={gi} className="viz-group">
             {g.section && (
@@ -81,9 +92,13 @@ export default function Visualizer({ pattern, onSetRounds }) {
             </div>
           </section>
         ))}
+        <p className="hint-chart">
+          Lecture : en rond, dans le sens inverse des aiguilles d'une montre depuis le haut (flèche) ;
+          à plat, un rang sur deux de droite à gauche.
+        </p>
       </div>
 
-      <div className="viz-side">
+      <div className="viz-side no-print">
         <div className={`round-detail ${isDone(activeIdx) ? 'done' : ''}`}>
           <div className="round-detail-head">
             <button type="button" className="btn small secondary" disabled={activeIdx === 0}
@@ -96,6 +111,7 @@ export default function Visualizer({ pattern, onSetRounds }) {
               onClick={() => setActiveRound(activeIdx + 1)} aria-label="Rang suivant">→</button>
           </div>
 
+          <p className="round-text">{active.text}</p>
           <div className="stitch-list">
             {breakdown.length === 0 && <span className="placeholder">Aucune maille reconnue sur ce rang.</span>}
             {breakdown.map(([t, c]) => (
@@ -103,6 +119,8 @@ export default function Visualizer({ pattern, onSetRounds }) {
                 <StitchGlyph type={t} size={16} /> {c}× {STITCH_INFO[t]?.label ?? t}
               </span>
             ))}
+            {active.loop && <span className="stitch-chip">{active.loop === 'blo' ? 'Brin arrière uniquement' : 'Brin avant uniquement'}</span>}
+            {active.flat && <span className="stitch-chip">↔ Rang aller-retour</span>}
           </div>
 
           <p className="count-line">Total : <strong>{active.count} mailles</strong></p>
@@ -120,19 +138,19 @@ export default function Visualizer({ pattern, onSetRounds }) {
           )}
 
           <label className="round-toggle">
-            <input type="checkbox" checked={isDone(activeIdx)} onChange={() => setDone([activeIdx], !isDone(activeIdx))} />
+            <input type="checkbox" checked={isDone(activeIdx)} onChange={() => onSetRounds([active.key], !isDone(activeIdx))} />
             <span>Ce rang est terminé</span>
           </label>
           <div className="round-actions">
             <button type="button" className="btn small" onClick={() => {
-              setDone(rounds.slice(0, activeIdx + 1).map((_, i) => i), true)
+              onSetRounds(rounds.slice(0, activeIdx + 1).map((r) => r.key), true)
               if (activeIdx < rounds.length - 1) setActiveRound(activeIdx + 1)
             }}>
               ✓ Terminé jusqu'ici
             </button>
             {doneCount > 0 && (
               <button type="button" className="btn small secondary" onClick={() => {
-                if (confirm('Décocher tous les rangs ?')) setDone(rounds.map((_, i) => i), false)
+                if (confirm('Décocher tous les rangs ?')) onSetRounds(rounds.map((r) => r.key), false)
               }}>
                 Tout décocher
               </button>

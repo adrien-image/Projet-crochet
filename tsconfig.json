@@ -1,0 +1,16 @@
+{
+  // Vérification de types sur les modules JavaScript annotés en JSDoc (« // @ts-check »)
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "strictNullChecks": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.js"]
+}

@@ -6,19 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "preview": "vite preview",
     "lint": "oxlint",
+    "typecheck": "tsc -p .",
     "test": "node --test",
-    "preview": "vite preview"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "typescript": "^5.9.3",
     "vite": "^8.3.0"
   }
 }

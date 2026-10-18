@@ -1,17 +1,13 @@
 import { GlyphShape } from './StitchGlyph'
 import { sectionColor } from './colors'
-
-const RING_R = 46
-const SIZE = 120
+import { chartLayout, directionArrow, CHART_SIZE, RING_R } from './glyphs'
 
 export default function RoundChart({ round, done, active, onClick }) {
-  const n = round.stitches.length
-  const c = SIZE / 2
-  const gap = 360 / Math.max(n, 1)
-  // taille des symboles adaptée à la place disponible sur l'anneau
-  const s = Math.max(1.8, Math.min(4.5, ((2 * Math.PI * RING_R) / Math.max(n, 1)) * 0.42))
+  const layout = chartLayout(round)
+  const c = CHART_SIZE / 2
   const color = done ? 'var(--done)' : sectionColor(round.section)
   const warn = !round.valid || round.fits === false
+  const sw = layout.s < 3 ? 1.1 : 1.5
 
   return (
     <button
@@ -19,28 +15,31 @@ export default function RoundChart({ round, done, active, onClick }) {
       className={`round-card ${active ? 'active' : ''} ${done ? 'done' : ''}`}
       onClick={onClick}
       aria-pressed={active}
-      title={round.section ? `${round.section} — ${round.label}` : round.label}
+      title={round.text}
     >
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} aria-hidden="true">
-        <circle cx={c} cy={c} r={RING_R} fill="none" strokeWidth="1.5" strokeDasharray="3 3"
-          style={{ stroke: done ? 'var(--done-border)' : 'var(--border)' }} />
-        {round.stitches.map((type, i) => {
-          const angle = i * gap
-          const a = ((angle - 90) * Math.PI) / 180
-          const x = c + RING_R * Math.cos(a)
-          const y = c + RING_R * Math.sin(a)
-          return (
-            <GlyphShape key={i} type={type} s={s} color={color} strokeWidth={s < 3 ? 1.1 : 1.5}
-              transform={`translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${angle.toFixed(1)})`} />
-          )
-        })}
-        <text x={c} y={c + 4} textAnchor="middle" fontSize="12" fontWeight="600"
+      <svg viewBox={`0 0 ${CHART_SIZE} ${CHART_SIZE}`} width={CHART_SIZE} height={CHART_SIZE} aria-hidden="true">
+        {layout.flat ? (
+          <line x1="8" x2={CHART_SIZE - 8} y1={c + 11} y2={c + 11} strokeWidth="1.5" strokeDasharray="3 3"
+            style={{ stroke: done ? 'var(--done-border)' : 'var(--border)' }} />
+        ) : (
+          <circle cx={c} cy={c} r={RING_R} fill="none" strokeWidth="1.5" strokeDasharray="3 3"
+            style={{ stroke: done ? 'var(--done-border)' : 'var(--border)' }} />
+        )}
+        <path d={directionArrow(layout)} fill="none" strokeWidth="1.2" strokeLinecap="round"
+          style={{ stroke: 'var(--muted)' }} opacity="0.6" />
+        {layout.nodes.map((nd, i) => (
+          <GlyphShape key={i} type={nd.type} s={layout.s} color={color} strokeWidth={sw}
+            transform={`translate(${nd.x.toFixed(2)} ${nd.y.toFixed(2)}) rotate(${nd.rot.toFixed(1)})`} />
+        ))}
+        <text x={c} y={layout.flat ? c - 16 : c + 4} textAnchor="middle" fontSize="12" fontWeight="600"
           style={{ fill: done ? 'var(--done)' : 'var(--text)' }}>
           {round.label}
         </text>
       </svg>
       <span className="round-meta">
         <span className="pill" style={{ borderColor: color, color }}>{round.count} m.</span>
+        {round.loop && <span className="pill" title={round.loop === 'blo' ? 'Brin arrière' : 'Brin avant'}>
+          {round.loop === 'blo' ? 'BArr' : 'BAv'}</span>}
         {warn && <span className="pill warn" title="Compte incohérent">⚠</span>}
         {done && <span className="pill ok">✓</span>}
       </span>

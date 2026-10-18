@@ -1,29 +1,6 @@
-// Symboles de crochet (conventions CYC / JIS), dessinés dans un repère local
-// centré sur (0, 0) où « le haut » (-y) pointe vers l'extérieur du rang.
-// `s` est la demi-taille du symbole. Les couleurs passent par `style` pour accepter var(--…).
-function glyphPaths(type, s) {
-  const t = s * 0.9
-  switch (type) {
-    case 'sc': // ✕
-      return [{ d: `M ${-t} ${-t} L ${t} ${t} M ${t} ${-t} L ${-t} ${t}` }]
-    case 'hdc': // T
-      return [{ d: `M 0 ${s} L 0 ${-s} M ${-t} ${-s} L ${t} ${-s}` }]
-    case 'dc': // T barré une fois
-      return [{ d: `M 0 ${s} L 0 ${-s} M ${-t} ${-s} L ${t} ${-s} M ${-t * 0.6} ${s * 0.15} L ${t * 0.6} ${-s * 0.35}` }]
-    case 'tr': // T barré deux fois
-      return [{ d: `M 0 ${s} L 0 ${-s} M ${-t} ${-s} L ${t} ${-s} M ${-t * 0.6} ${s * 0.45} L ${t * 0.6} ${-s * 0.05} M ${-t * 0.6} ${-s * 0.15} L ${t * 0.6} ${-s * 0.65}` }]
-    case 'inc': // V : deux mailles dans une même base
-      return [{ d: `M ${-t} ${-s} L 0 ${s} L ${t} ${-s}` }]
-    case 'dec': // Λ : deux bases fermées ensemble
-      return [{ d: `M ${-t} ${s} L 0 ${-s} L ${t} ${s}` }]
-    case 'sl': // •
-      return [{ circle: true, r: Math.max(s * 0.38, 1), fill: true }]
-    case 'ch': // ○
-    default:
-      return [{ ellipse: true, rx: s * 0.75, ry: s * 0.5 }]
-  }
-}
+import { glyphPaths } from './glyphs'
 
+// Les couleurs passent par `style` pour accepter var(--…).
 export function GlyphShape({ type, s, color, strokeWidth = 1.6, transform }) {
   return (
     <g transform={transform}>

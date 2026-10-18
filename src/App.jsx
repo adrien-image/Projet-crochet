@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  loadPatterns, savePatterns, uid, samplePatterns, exportPatterns, importPatterns,
-} from './storage'
+import { useMemo, useRef, useState } from 'react'
+import { uid, samplePatterns, exportPatterns, importPatterns } from './storage'
+import { parsePattern, parseOptions, remapRoundKeys } from './patternParser'
+import { patternProgress } from './progress'
+import { usePatterns } from './hooks/usePatterns'
+import { useHashRoute } from './hooks/useHashRoute'
+import { useToast } from './hooks/useToast'
 import PatternCard from './PatternCard'
 import PatternDetail from './PatternDetail'
 import PatternForm from './PatternForm'
@@ -13,113 +16,101 @@ const FILTERS = [
   ['done', 'Terminés'],
 ]
 
-function progress(p) {
-  const total = p.checklist.length
-  const done = p.checklist.filter((i) => i.done).length
-  return { total, done }
+const SORTS = {
+  recent: ['Modifiés récemment', (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')],
+  created: ['Ajoutés récemment', (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')],
+  name: ['Nom (A → Z)', (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })],
+  progress: ['Progression', (a, b) => patternProgress(b).pct - patternProgress(a).pct],
 }
 
-// Le patron ouvert est reflété dans l'URL (#/patron/<id>) : bouton « retour » et rechargement fonctionnent.
-const idFromHash = () => decodeURIComponent(window.location.hash.match(/^#\/patron\/(.+)$/)?.[1] ?? '') || null
-
 export default function App() {
-  const [patterns, setPatterns] = useState(() => loadPatterns())
-  const [openId, setOpenId] = useState(idFromHash)
+  const { toast, show: notify, hide: hideToast } = useToast()
+  const { patterns, setPatterns, update } = usePatterns(() => notify(
+    '⚠ Stockage du navigateur plein : la dernière modification n\'est pas sauvegardée. Exportez une sauvegarde puis supprimez des patrons.',
+    { error: true },
+  ))
+  const [openId, navigate] = useHashRoute()
   const [editing, setEditing] = useState(null) // null | {} (nouveau) | patron
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const [toast, setToast] = useState(null) // { text, error }
+  const [tag, setTag] = useState(null)
+  const [sort, setSort] = useState('recent')
   const importRef = useRef(null)
-  const firstSave = useRef(true)
-
-  useEffect(() => {
-    if (firstSave.current) {
-      firstSave.current = false
-      return
-    }
-    if (!savePatterns(patterns)) {
-      // l'écriture dans localStorage est l'effet externe ; on signale son échec
-      // oxlint-disable-next-line react/set-state-in-effect
-      setToast({ text: '⚠ Stockage du navigateur plein : la dernière modification n\'est pas sauvegardée. Supprimez des fichiers/images ou exportez une sauvegarde.', error: true })
-    }
-  }, [patterns])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), toast.error ? 6000 : 2200)
-    return () => clearTimeout(t)
-  }, [toast])
-
-  useEffect(() => {
-    const onHash = () => setOpenId(idFromHash())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  const openPattern = (id) => {
-    if (id) window.location.hash = `#/patron/${encodeURIComponent(id)}`
-    else if (window.location.hash) window.history.pushState(null, '', window.location.pathname + window.location.search)
-    setOpenId(id)
-    window.scrollTo?.(0, 0)
-  }
-
-  const notify = (text) => setToast({ text })
-
-  const updatePattern = (id, fn) => setPatterns((ps) => ps.map((p) => (p.id === id ? fn(p) : p)))
 
   const open = useMemo(() => patterns.find((p) => p.id === openId), [patterns, openId])
+
+  const allTags = useMemo(() => {
+    const counts = new Map()
+    for (const p of patterns) for (const t of p.tags) counts.set(t, (counts.get(t) || 0) + 1)
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))
+  }, [patterns])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return patterns.filter((p) => {
-      if (q && !`${p.name} ${p.description} ${p.tags.join(' ')}`.toLowerCase().includes(q)) return false
-      const { total, done } = progress(p)
+      if (tag && !p.tags.includes(tag)) return false
+      if (q && !`${p.name} ${p.description} ${p.tags.join(' ')} ${p.yarn} ${p.hook}`.toLowerCase().includes(q)) return false
+      const { total, done } = patternProgress(p)
       if (filter === 'done') return total > 0 && done === total
       if (filter === 'in-progress') return done > 0 && done < total
       if (filter === 'todo') return done === 0
       return true
-    })
-  }, [patterns, query, filter])
+    }).sort(SORTS[sort][1])
+  }, [patterns, query, filter, tag, sort])
 
   const savePattern = (data) => {
     if (data.id) {
-      updatePattern(data.id, (p) => ({ ...p, ...data }))
+      update(data.id, (p) => {
+        const next = { ...p, ...data }
+        // le texte a changé : on retrouve les rangs déjà cochés dans la nouvelle version
+        if (p.text !== next.text || p.notation !== next.notation || p.size !== next.size) {
+          next.roundsDone = remapRoundKeys(
+            parsePattern(p.text, parseOptions(p)), parsePattern(next.text, parseOptions(next)), p.roundsDone,
+          )
+        }
+        return next
+      })
     } else {
-      const p = { ...data, id: uid(), createdAt: new Date().toISOString(), checklist: [] }
+      const now = new Date().toISOString()
+      const p = {
+        ...data, id: uid(), createdAt: now, updatedAt: now, checklist: [], roundsDone: [], stitchCounter: 0,
+      }
       setPatterns((ps) => [p, ...ps])
-      openPattern(p.id)
+      navigate(p.id)
     }
     setEditing(null)
     notify('Patron enregistré ✓')
   }
 
+  // suppression immédiate, annulable quelques secondes depuis le message
   const deletePattern = (id) => {
-    const p = patterns.find((x) => x.id === id)
-    if (!confirm(`Supprimer « ${p?.name ?? 'ce patron'} » ? Cette action est définitive.`)) return
+    const index = patterns.findIndex((x) => x.id === id)
+    if (index < 0) return
+    const removed = patterns[index]
     setPatterns((ps) => ps.filter((x) => x.id !== id))
-    if (openId === id) openPattern(null)
-    notify('Patron supprimé')
+    if (openId === id) navigate(null)
+    notify(`« ${removed.name} » supprimé`, {
+      action: {
+        label: 'Annuler',
+        run: () => setPatterns((ps) => {
+          if (ps.some((x) => x.id === id)) return ps
+          const next = [...ps]
+          next.splice(Math.min(index, next.length), 0, removed)
+          return next
+        }),
+      },
+    })
   }
 
-  const toggleItem = (pid, itemId) => updatePattern(pid, (p) => ({
-    ...p, checklist: p.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
-  }))
+  const setChecklist = (pid, fn) => update(pid, (p) => ({ ...p, checklist: fn(p.checklist) }))
 
-  const addItem = (pid, item) => updatePattern(pid, (p) => ({ ...p, checklist: [...p.checklist, item] }))
-
-  const deleteItem = (pid, itemId) => updatePattern(pid, (p) => ({
-    ...p, checklist: p.checklist.filter((i) => i.id !== itemId),
-  }))
-
-  // Coche/décoche des rangs du visualiseur ; crée l'étape correspondante si besoin.
-  const setRoundsDone = (pid, items, done) => updatePattern(pid, (p) => {
-    const byId = new Map(items.map((i) => [i.id, i]))
-    const checklist = p.checklist.map((i) => (byId.has(i.id) ? { ...i, done } : i))
-    if (done) {
-      const existing = new Set(p.checklist.map((i) => i.id))
-      for (const it of items) if (!existing.has(it.id)) checklist.push({ ...it, done: true })
+  const setRoundsDone = (pid, keys, done) => update(pid, (p) => {
+    const set = new Set(p.roundsDone)
+    for (const k of keys) {
+      if (done) set.add(k)
+      else set.delete(k)
     }
-    return { ...p, checklist }
+    return { ...p, roundsDone: [...set] }
   })
 
   const onImport = async (e) => {
@@ -130,12 +121,19 @@ export default function App() {
       const imported = await importPatterns(file)
       setPatterns((ps) => {
         const ids = new Set(ps.map((p) => p.id))
-        const fresh = imported.map((p) => (ids.has(p.id) ? { ...p, id: uid() } : p))
-        return [...fresh, ...ps]
+        return [...imported.map((p) => (ids.has(p.id) ? { ...p, id: uid() } : p)), ...ps]
       })
       notify(`${imported.length} patron(s) importé(s) ✓`)
     } catch {
-      setToast({ text: '⚠ Fichier de sauvegarde illisible', error: true })
+      notify('⚠ Fichier de sauvegarde illisible', { error: true })
+    }
+  }
+
+  const onExport = async () => {
+    try {
+      await exportPatterns(patterns)
+    } catch {
+      notify('⚠ Export impossible', { error: true })
     }
   }
 
@@ -148,7 +146,14 @@ export default function App() {
   }
 
   const toastEl = toast && (
-    <div className={`toast ${toast.error ? 'error' : ''}`} role="status">{toast.text}</div>
+    <div className={`toast ${toast.error ? 'error' : ''}`} role="status">
+      <span>{toast.text}</span>
+      {toast.action && (
+        <button type="button" className="toast-action" onClick={() => { toast.action.run(); hideToast() }}>
+          {toast.action.label}
+        </button>
+      )}
+    </div>
   )
   const form = editing && (
     <PatternForm initial={editing.id ? editing : null} onSave={savePattern} onCancel={() => setEditing(null)} />
@@ -159,13 +164,12 @@ export default function App() {
       <div className="app">
         <PatternDetail
           pattern={open}
-          onToggle={toggleItem}
-          onAddItem={addItem}
-          onDeleteItem={deleteItem}
-          onSetRounds={(items, done) => setRoundsDone(open.id, items, done)}
+          onChecklist={(fn) => setChecklist(open.id, fn)}
+          onSetRounds={(keys, done) => setRoundsDone(open.id, keys, done)}
+          onStitchCounter={(n) => update(open.id, (p) => ({ ...p, stitchCounter: Math.max(0, n) }))}
           onEditPattern={(p) => setEditing(p)}
           onDelete={() => deletePattern(open.id)}
-          onBack={() => openPattern(null)}
+          onBack={() => navigate(null)}
         />
         {form}
         {toastEl}
@@ -183,8 +187,8 @@ export default function App() {
           <p className="tagline">Votre collection de patrons, votre progression au même endroit.</p>
         </div>
         <div className="header-actions">
-          <button className="btn secondary small" onClick={() => exportPatterns(patterns)} disabled={!patterns.length}
-            title="Télécharger une sauvegarde de tous vos patrons (JSON)">⬇ Exporter</button>
+          <button className="btn secondary small" onClick={onExport} disabled={!patterns.length}
+            title="Télécharger une sauvegarde de tous vos patrons, fichiers compris (JSON)">⬇ Exporter</button>
           <button className="btn secondary small" onClick={() => importRef.current?.click()}
             title="Importer une sauvegarde (JSON)">⬆ Importer</button>
           <input ref={importRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
@@ -193,7 +197,7 @@ export default function App() {
       </header>
 
       <div className="toolbar">
-        <input className="search" type="search" placeholder="Rechercher un patron…" value={query}
+        <input className="search" type="search" placeholder="Rechercher un patron, un fil…" value={query}
           aria-label="Rechercher un patron" onChange={(e) => setQuery(e.target.value)} />
         <div className="filters" role="group" aria-label="Filtrer par progression">
           {FILTERS.map(([f, label]) => (
@@ -203,7 +207,21 @@ export default function App() {
             </button>
           ))}
         </div>
+        <select className="sort-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Trier">
+          {Object.entries(SORTS).map(([k, [label]]) => <option key={k} value={k}>{label}</option>)}
+        </select>
       </div>
+
+      {allTags.length > 0 && (
+        <div className="tag-bar" role="group" aria-label="Filtrer par tag">
+          {allTags.map(([t, n]) => (
+            <button key={t} type="button" className={`tag-chip ${tag === t ? 'active' : ''}`} aria-pressed={tag === t}
+              onClick={() => setTag(tag === t ? null : t)}>
+              #{t} <small>{n}</small>
+            </button>
+          ))}
+        </div>
+      )}
 
       {visible.length === 0 ? (
         <div className="empty">
@@ -215,7 +233,7 @@ export default function App() {
       ) : (
         <div className="grid">
           {visible.map((p) => (
-            <PatternCard key={p.id} pattern={p} onOpen={openPattern} onDelete={deletePattern} />
+            <PatternCard key={p.id} pattern={p} onOpen={navigate} onDelete={deletePattern} onTag={setTag} />
           ))}
         </div>
       )}

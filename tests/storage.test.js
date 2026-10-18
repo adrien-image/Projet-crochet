@@ -11,10 +11,26 @@ test('normalisation des données incomplètes', () => {
   assert.equal(p.text, '')
 })
 
-test('migration des anciens identifiants de rang « round-{index} »', () => {
+test('migration : rangs cochés séparés des étapes, anciens identifiants « round-{index} »', () => {
   const sample = samplePattern()
-  const p = normalizePattern({ ...sample, checklist: [{ id: 'round-2', text: 'Rang R3 (MUSEAU)', done: true }] })
   const rounds = parsePattern(sample.text)
-  assert.equal(p.checklist[0].id, rounds[2].key)
-  assert.equal(p.checklist[0].done, true)
+  const p = normalizePattern({
+    ...sample,
+    roundsDone: [],
+    checklist: [
+      { id: 'round-2', text: 'Rang R3 (MUSEAU)', done: true },
+      { id: rounds[4].key, text: 'R5 — MUSEAU', done: true },
+      { id: 'x', text: 'Coudre', done: false },
+    ],
+  })
+  // les rangs quittent la liste d'étapes et passent dans roundsDone
+  assert.deepEqual(p.checklist.map((i) => i.id), ['x'])
+  assert.deepEqual(p.roundsDone.sort(), [rounds[2].key, rounds[4].key].sort())
+})
+
+test('patrons d\'exemple : souris commencée, champs complets', () => {
+  const p = samplePattern()
+  assert.equal(p.roundsDone.length, 7)
+  assert.equal(p.hook, '3 mm')
+  assert.equal(p.notation, 'auto')
 })
