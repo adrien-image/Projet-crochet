@@ -1,9 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
-import { Download, Ellipsis, Plus, RotateCcw, Search, Upload, X } from 'lucide-react'
+import {
+  CloudOff, Download, Ellipsis, FolderSync, HardDrive, Languages, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Upload, X,
+} from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
 import type { PatternTab } from '../../hooks/useHashRoute'
-import { Menu } from '../../ui/Menu'
+import type { SyncStatus } from '../../hooks/useFileSync'
+import { t, tn, getLang, type Lang } from '../../i18n'
+import { Menu, type MenuItem } from '../../ui/Menu'
 import { Segmented } from '../../ui/Segmented'
 import { EmptyState } from '../../ui/EmptyState'
 import { PatternCard } from './PatternCard'
@@ -14,8 +18,16 @@ type Sort = 'recent' | 'created' | 'name' | 'progress'
 const SORTS: Record<Sort, [string, (a: Pattern, b: Pattern) => number]> = {
   recent: ['Modifiés récemment', (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')],
   created: ['Ajoutés récemment', (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')],
-  name: ['Nom (A → Z)', (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })],
+  name: ['Nom (A → Z)', (a, b) => a.name.localeCompare(b.name, getLang(), { sensitivity: 'base' })],
   progress: ['Progression', (a, b) => patternProgress(b).pct - patternProgress(a).pct],
+}
+
+export interface SyncInfo {
+  status: SyncStatus
+  fileName: string | null
+  link: () => void
+  reconnect: () => void
+  unlink: () => void
 }
 
 interface Props {
@@ -26,9 +38,14 @@ interface Props {
   onExport: () => void
   onImport: (file: File) => void
   onRestoreSamples: () => void
+  onLang: (lang: Lang) => void
+  onStorage: () => void
+  reminder: { show: boolean, lastExportAt: string | null, onSnooze: () => void }
+  sync: SyncInfo
 }
 
-export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImport, onRestoreSamples }: Props) {
+export function LibraryView(props: Props) {
+  const { patterns, onOpen, onNew, onDelete, sync } = props
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [tag, setTag] = useState<string | null>(null)
@@ -37,8 +54,8 @@ export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImp
 
   const allTags = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const p of patterns) for (const t of p.tags) counts.set(t, (counts.get(t) || 0) + 1)
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))
+    for (const p of patterns) for (const tg of p.tags) counts.set(tg, (counts.get(tg) || 0) + 1)
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], getLang()))
   }, [patterns])
 
   const counts = useMemo(() => {
@@ -66,6 +83,18 @@ export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImp
   }, [patterns, query, filter, tag, sort])
 
   const hasSamples = patterns.some((p) => p.tags.includes('exemple'))
+  const lang = getLang()
+
+  const menu: MenuItem[] = [
+    { label: t('Exporter une sauvegarde'), icon: <Download size={16} />, onSelect: props.onExport, disabled: !patterns.length },
+    { label: t('Importer une sauvegarde ou un patron'), icon: <Upload size={16} />, onSelect: () => importRef.current?.click() },
+    ...(sync.status === 'unsupported' ? [] : sync.status === 'off'
+      ? [{ label: t('Synchroniser avec un fichier…'), icon: <FolderSync size={16} />, onSelect: sync.link }]
+      : [{ label: t('Arrêter la synchronisation'), icon: <CloudOff size={16} />, onSelect: sync.unlink }]),
+    { label: t('Stockage et sécurité des données'), icon: <HardDrive size={16} />, onSelect: props.onStorage },
+    { label: lang === 'fr' ? 'English' : 'Français', icon: <Languages size={16} />, onSelect: () => props.onLang(lang === 'fr' ? 'en' : 'fr') },
+    { label: t('Restaurer les exemples'), icon: <RotateCcw size={16} />, onSelect: props.onRestoreSamples, disabled: hasSamples },
+  ]
 
   return (
     <>
@@ -77,50 +106,73 @@ export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImp
           </a>
           <label className="search">
             <Search size={18} aria-hidden="true" />
-            <input type="search" placeholder="Rechercher un patron, un fil, un tag…" value={query}
-              aria-label="Rechercher" onChange={(e) => setQuery(e.target.value)} />
-            {query && <button type="button" className="icon-btn ghost sm" onClick={() => setQuery('')} aria-label="Effacer"><X size={16} /></button>}
+            <input type="search" placeholder={t('Rechercher un patron, un fil, un tag…')} value={query}
+              aria-label={t('Rechercher')} onChange={(e) => setQuery(e.target.value)} />
+            {query && <button type="button" className="icon-btn ghost sm" onClick={() => setQuery('')} aria-label={t('Effacer')}><X size={16} /></button>}
           </label>
           <div className="appbar-actions">
-            <Menu label="Sauvegarde et options" icon={<Ellipsis size={20} />} items={[
-              { label: 'Exporter une sauvegarde', icon: <Download size={16} />, onSelect: onExport, disabled: !patterns.length },
-              { label: 'Importer une sauvegarde', icon: <Upload size={16} />, onSelect: () => importRef.current?.click() },
-              { label: 'Restaurer les exemples', icon: <RotateCcw size={16} />, onSelect: onRestoreSamples, disabled: hasSamples },
-            ]} />
+            {sync.status === 'reconnect' && (
+              <button type="button" className="btn secondary sm" onClick={sync.reconnect} title={sync.fileName ?? undefined}>
+                <RefreshCw size={15} /><span className="hide-sm">{t('Reprendre la synchro')}</span>
+              </button>
+            )}
+            {(sync.status === 'synced' || sync.status === 'syncing') && (
+              <span className="sync-chip" title={t('Synchronisé avec {f}', { f: sync.fileName ?? '' })}>
+                <FolderSync size={15} className={sync.status === 'syncing' ? 'spin' : ''} /><span className="hide-sm">{t('Synchronisé')}</span>
+              </span>
+            )}
+            {sync.status === 'error' && <span className="sync-chip warn">{t('Synchro en erreur')}</span>}
+            <Menu label={t('Sauvegarde et options')} icon={<Ellipsis size={20} />} items={menu} />
             <input ref={importRef} type="file" accept="application/json,.json" hidden
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f) }} />
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) props.onImport(f) }} />
             <button type="button" className="btn primary" onClick={onNew}>
-              <Plus size={18} /><span className="hide-sm">Nouveau patron</span>
+              <Plus size={18} /><span className="hide-sm">{t('Nouveau patron')}</span>
             </button>
           </div>
         </div>
       </header>
 
       <main className="page">
+        {props.reminder.show && (
+          <div className="banner" role="status">
+            <ShieldCheck size={20} aria-hidden="true" />
+            <p>
+              <strong>{t('Pensez à sauvegarder vos patrons.')}</strong>{' '}
+              {props.reminder.lastExportAt
+                ? t('Dernière sauvegarde le {d}.', { d: new Date(props.reminder.lastExportAt).toLocaleDateString(lang) })
+                : t('Ils ne sont enregistrés que dans ce navigateur.')}
+            </p>
+            <div className="row-gap">
+              <button type="button" className="btn primary sm" onClick={props.onExport}><Download size={15} /> {t('Exporter')}</button>
+              <button type="button" className="btn ghost sm" onClick={props.reminder.onSnooze}>{t('Plus tard')}</button>
+            </div>
+          </div>
+        )}
+
         <div className="library-head">
           <div>
-            <h1>Mes patrons</h1>
-            <p className="muted">{patterns.length} patron{patterns.length > 1 ? 's' : ''} · enregistrés sur cet appareil</p>
+            <h1>{t('Mes patrons')}</h1>
+            <p className="muted">{tn(patterns.length, '{n} patron · enregistré sur cet appareil', '{n} patrons · enregistrés sur cet appareil')}</p>
           </div>
           <div className="library-controls">
-            <Segmented label="Filtrer par progression" value={filter} onChange={setFilter} options={[
-              { value: 'all', label: <>Tous <small>{counts.all}</small></> },
-              { value: 'todo', label: <>À commencer <small>{counts.todo}</small></> },
-              { value: 'in-progress', label: <>En cours <small>{counts['in-progress']}</small></> },
-              { value: 'done', label: <>Terminés <small>{counts.done}</small></> },
+            <Segmented label={t('Filtrer par progression')} value={filter} onChange={setFilter} options={[
+              { value: 'all', label: <>{t('Tous')} <small>{counts.all}</small></> },
+              { value: 'todo', label: <>{t('À commencer')} <small>{counts.todo}</small></> },
+              { value: 'in-progress', label: <>{t('En cours')} <small>{counts['in-progress']}</small></> },
+              { value: 'done', label: <>{t('Terminés')} <small>{counts.done}</small></> },
             ]} />
-            <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Trier">
-              {(Object.keys(SORTS) as Sort[]).map((k) => <option key={k} value={k}>{SORTS[k][0]}</option>)}
+            <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label={t('Trier')}>
+              {(Object.keys(SORTS) as Sort[]).map((k) => <option key={k} value={k}>{t(SORTS[k][0])}</option>)}
             </select>
           </div>
         </div>
 
         {allTags.length > 0 && (
-          <div className="tag-bar" role="group" aria-label="Filtrer par tag">
-            {allTags.map(([t, n]) => (
-              <button key={t} type="button" className={`chip ${tag === t ? 'active' : ''}`} aria-pressed={tag === t}
-                onClick={() => setTag(tag === t ? null : t)}>
-                #{t} <small>{n}</small>
+          <div className="tag-bar" role="group" aria-label={t('Filtrer par tag')}>
+            {allTags.map(([tg, n]) => (
+              <button key={tg} type="button" className={`chip ${tag === tg ? 'active' : ''}`} aria-pressed={tag === tg}
+                onClick={() => setTag(tag === tg ? null : tg)}>
+                #{tg} <small>{n}</small>
               </button>
             ))}
           </div>
@@ -128,15 +180,14 @@ export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImp
 
         {visible.length === 0 ? (
           patterns.length === 0 ? (
-            <EmptyState icon="🧶" title="Votre bibliothèque est vide"
-              action={<button className="btn primary" onClick={onNew}><Plus size={18} /> Ajouter un patron</button>}>
-              Collez le texte d'un patron (« R1 : 6 ms dans un anneau magique (6) »…) pour obtenir le compteur,
-              le rendu du tissu et l'aperçu 3D.
+            <EmptyState icon="🧶" title={t('Votre bibliothèque est vide')}
+              action={<button className="btn primary" onClick={onNew}><Plus size={18} /> {t('Ajouter un patron')}</button>}>
+              {t('Collez le texte d\'un patron (« R1 : 6 ms dans un anneau magique (6) »…) ou joignez son PDF pour obtenir le compteur, le rendu du tissu et l\'aperçu 3D.')}
             </EmptyState>
           ) : (
-            <EmptyState icon="🔎" title="Aucun résultat"
-              action={<button className="btn ghost" onClick={() => { setQuery(''); setTag(null); setFilter('all') }}>Effacer les filtres</button>}>
-              Aucun patron ne correspond à cette recherche.
+            <EmptyState icon="🔎" title={t('Aucun résultat')}
+              action={<button className="btn ghost" onClick={() => { setQuery(''); setTag(null); setFilter('all') }}>{t('Effacer les filtres')}</button>}>
+              {t('Aucun patron ne correspond à cette recherche.')}
             </EmptyState>
           )
         ) : (
@@ -146,7 +197,7 @@ export function LibraryView({ patterns, onOpen, onNew, onDelete, onExport, onImp
             ))}
           </div>
         )}
-        <p className="footnote">Vos données restent dans ce navigateur. Pensez à exporter une sauvegarde de temps en temps.</p>
+        <p className="footnote">{t('Vos données restent dans ce navigateur. Pensez à exporter une sauvegarde de temps en temps.')}</p>
       </main>
     </>
   )

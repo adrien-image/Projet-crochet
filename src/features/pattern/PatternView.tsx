@@ -1,10 +1,15 @@
 import { useRef } from 'react'
-import { ArrowLeft, Box, Ellipsis, FileText, Grid3x3, ListOrdered, Pencil, Trash2 } from 'lucide-react'
-import type { ChecklistItem, Pattern } from '../../domain/types'
+import { ArrowLeft, Box, Download, Ellipsis, FileText, Grid3x3, Link2, ListOrdered, Pause, Pencil, Play, Share2, Trash2 } from 'lucide-react'
+import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
+import { formatDuration, startTimer, stopTimer, totalSeconds } from '../../domain/time'
 import type { PatternTab } from '../../hooks/useHashRoute'
+import { useTicker } from '../../hooks/useTicker'
+import { t } from '../../i18n'
 import { Menu } from '../../ui/Menu'
 import { ProgressRing } from '../../ui/Progress'
+import { ErrorBoundary } from '../../ui/ErrorBoundary'
+import type { Update } from './actions'
 import { OverviewTab } from './OverviewTab'
 import { CounterTab } from './CounterTab'
 import { RoundsTab } from './RoundsTab'
@@ -17,6 +22,8 @@ const TABS: { id: PatternTab, label: string, icon: typeof FileText }[] = [
   { id: '3d', label: '3D', icon: Box },
 ]
 
+export type ShareKind = 'link' | 'file' | 'native'
+
 interface Props {
   pattern: Pattern
   tab: PatternTab
@@ -24,21 +31,35 @@ interface Props {
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
-  onChecklist: (fn: (l: ChecklistItem[]) => ChecklistItem[]) => void
-  onSetRounds: (keys: string[], done: boolean) => void
-  onStitchCounter: (n: number) => void
-  onPieceColor: (label: string, color: string | null) => void
+  onShare: (kind: ShareKind) => void
+  update: Update
+}
+
+/** Chronomètre de la séance, dans l'en-tête. */
+export function TimerButton({ pattern, update, compact }: { pattern: Pattern, update: Update, compact?: boolean }) {
+  const running = !!pattern.timerStartedAt
+  const now = useTicker(running)
+  const total = totalSeconds(pattern, now)
+  return (
+    <button type="button" className={`btn ${running ? 'timer-on' : 'ghost'} ${compact ? 'sm' : ''}`} aria-pressed={running}
+      onClick={() => update((p) => (p.timerStartedAt ? stopTimer(p) : startTimer(p)))}
+      title={running ? t('Mettre le chronomètre en pause') : t('Lancer le chronomètre')}>
+      {running ? <Pause size={16} /> : <Play size={16} />}
+      <span className="tabular">{total ? formatDuration(total) : t('Chrono')}</span>
+    </button>
+  )
 }
 
 export function PatternView(props: Props) {
-  const { pattern, tab, onTab } = props
+  const { pattern, tab, onTab, update } = props
   const progress = patternProgress(pattern)
   const tabsRef = useRef<HTMLDivElement>(null)
+  const canShare = typeof navigator !== 'undefined' && !!navigator.share
 
   // onglets : flèches gauche / droite (motif WAI-ARIA « tabs »)
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
-    const i = TABS.findIndex((t) => t.id === tab)
+    const i = TABS.findIndex((x) => x.id === tab)
     const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]
     onTab(next.id)
     tabsRef.current?.querySelector<HTMLButtonElement>(`#tab-${next.id}`)?.focus()
@@ -48,12 +69,16 @@ export function PatternView(props: Props) {
     <>
       <header className="appbar">
         <div className="appbar-inner">
-          <button type="button" className="btn ghost back" onClick={props.onBack}><ArrowLeft size={18} /><span className="hide-sm">Bibliothèque</span></button>
+          <button type="button" className="btn ghost back" onClick={props.onBack}><ArrowLeft size={18} /><span className="hide-sm">{t('Bibliothèque')}</span></button>
           <span className="appbar-title">{pattern.name}</span>
           <div className="appbar-actions">
-            <button type="button" className="btn secondary" onClick={props.onEdit}><Pencil size={16} /><span className="hide-sm">Modifier</span></button>
-            <Menu label="Plus d'actions" icon={<Ellipsis size={20} />} items={[
-              { label: 'Supprimer le patron', icon: <Trash2 size={16} />, onSelect: props.onDelete, danger: true },
+            <TimerButton pattern={pattern} update={update} compact />
+            <button type="button" className="btn secondary" onClick={props.onEdit}><Pencil size={16} /><span className="hide-sm">{t('Modifier')}</span></button>
+            <Menu label={t('Plus d\'actions')} icon={<Ellipsis size={20} />} items={[
+              ...(canShare ? [{ label: t('Partager…'), icon: <Share2 size={16} />, onSelect: () => props.onShare('native') }] : []),
+              { label: t('Copier le lien de partage'), icon: <Link2 size={16} />, onSelect: () => props.onShare('link') },
+              { label: t('Télécharger le patron (fichier)'), icon: <Download size={16} />, onSelect: () => props.onShare('file') },
+              { label: t('Supprimer le patron'), icon: <Trash2 size={16} />, onSelect: props.onDelete, danger: true },
             ]} />
           </div>
         </div>
@@ -64,32 +89,33 @@ export function PatternView(props: Props) {
           <div className="pattern-hero-text">
             <h1>{pattern.name}</h1>
             {tab === 'patron' && pattern.description && <p className="muted">{pattern.description}</p>}
-            {tab === 'patron' && <div className="chips">
-              {pattern.hook && <span className="chip">Crochet {pattern.hook}</span>}
-              {pattern.yarn && <span className="chip">{pattern.yarn}</span>}
-              {pattern.tags.map((t) => <span key={t} className="chip ghost">#{t}</span>)}
-            </div>}
+            {tab === 'patron' && (
+              <div className="chips">
+                {pattern.hook && <span className="chip">{t('Crochet {h}', { h: pattern.hook })}</span>}
+                {pattern.yarn && <span className="chip">{pattern.yarn}</span>}
+                {pattern.tags.map((tg) => <span key={tg} className="chip ghost">#{tg}</span>)}
+              </div>
+            )}
           </div>
-          {progress.total > 0 && <ProgressRing value={progress.pct} size={64} label={`Progression : ${progress.pct} %`} />}
+          {progress.total > 0 && <ProgressRing value={progress.pct} size={64} label={t('Progression : {p} %', { p: progress.pct })} />}
         </div>
 
-        <div className="tabs" role="tablist" aria-label="Sections du patron" ref={tabsRef} onKeyDown={onKey}>
+        <div className="tabs" role="tablist" aria-label={t('Sections du patron')} ref={tabsRef} onKeyDown={onKey}>
           {TABS.map(({ id, label, icon: Icon }) => (
             <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`panel-${id}`}
               tabIndex={tab === id ? 0 : -1} className={`tab ${tab === id ? 'active' : ''}`} onClick={() => onTab(id)}>
-              <Icon size={18} aria-hidden="true" /><span>{label}</span>
+              <Icon size={18} aria-hidden="true" /><span>{t(label)}</span>
             </button>
           ))}
         </div>
 
         <section id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="tab-panel">
-          {tab === 'patron' && (
-            <OverviewTab pattern={pattern} onChecklist={props.onChecklist} onSetRounds={props.onSetRounds}
-              onOpenCounter={() => onTab('compteur')} onEdit={props.onEdit} />
-          )}
-          {tab === 'compteur' && <CounterTab pattern={pattern} onSetRounds={props.onSetRounds} onStitchCounter={props.onStitchCounter} />}
-          {tab === 'rangs' && <RoundsTab pattern={pattern} onSetRounds={props.onSetRounds} />}
-          {tab === '3d' && <Model3DTab pattern={pattern} onPieceColor={props.onPieceColor} />}
+          <ErrorBoundary key={tab}>
+            {tab === 'patron' && <OverviewTab pattern={pattern} update={update} onOpenCounter={() => onTab('compteur')} onEdit={props.onEdit} />}
+            {tab === 'compteur' && <CounterTab pattern={pattern} update={update} />}
+            {tab === 'rangs' && <RoundsTab pattern={pattern} update={update} />}
+            {tab === '3d' && <Model3DTab pattern={pattern} update={update} />}
+          </ErrorBoundary>
         </section>
       </main>
     </>

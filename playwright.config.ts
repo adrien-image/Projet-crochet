@@ -11,6 +11,8 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}/Projet-crochet/`,
     trace: 'retain-on-failure',
+    // l'interface suit la langue du navigateur : les scénarios sont écrits en français
+    locale: 'fr-FR',
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] }, testIgnore: /mobile\.spec\.ts/ },

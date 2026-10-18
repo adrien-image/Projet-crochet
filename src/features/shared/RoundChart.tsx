@@ -2,6 +2,7 @@ import type { Round } from '../../domain/types'
 import { GlyphShape } from './StitchGlyph'
 import { sectionColor } from '../../domain/colors'
 import { chartLayout, directionArrow, CHART_SIZE, RING_R } from '../../render2d/glyphs'
+import { t } from '../../i18n'
 
 /** Diagramme à symboles d'un rang (conventions internationales). */
 export function RoundChart({ round, done, active, onClick }: { round: Round, done: boolean, active: boolean, onClick: () => void }) {
@@ -30,9 +31,9 @@ export function RoundChart({ round, done, active, onClick }: { round: Round, don
         </text>
       </svg>
       <span className="chart-meta">
-        <span>{round.count} m.</span>
-        {round.loop && <span className="chip xs">{round.loop === 'blo' ? 'brin arr.' : 'brin av.'}</span>}
-        {warn && <span className="chip xs warn">à vérifier</span>}
+        <span>{t('{n} m.', { n: round.count })}</span>
+        {round.loop && <span className="chip xs">{round.loop === 'blo' ? t('brin arr.') : t('brin av.')}</span>}
+        {warn && <span className="chip xs warn">{t('à vérifier')}</span>}
       </span>
     </button>
   )

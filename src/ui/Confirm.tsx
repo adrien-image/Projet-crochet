@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { Dialog } from './Dialog'
+import { t } from '../i18n'
 import { ConfirmContext as Ctx, type ConfirmFn, type ConfirmRequest as Request } from './confirmContext'
 
 /** Remplace window.confirm() par une boîte de dialogue de l'application. */
@@ -20,9 +21,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Dialog open={!!req} title={req?.title ?? ''} size="sm" onClose={() => done(false)}
         footer={(
           <>
-            <button type="button" className="btn ghost" onClick={() => done(false)}>Annuler</button>
+            <button type="button" className="btn ghost" onClick={() => done(false)}>{t('Annuler')}</button>
             <button type="button" className={`btn ${req?.danger ? 'danger' : 'primary'}`} autoFocus onClick={() => done(true)}>
-              {req?.confirm ?? 'Confirmer'}
+              {req?.confirm ?? t('Confirmer')}
             </button>
           </>
         )}>

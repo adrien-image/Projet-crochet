@@ -24,6 +24,8 @@ export interface Ring {
   count: number
   /** coordonnée de rang (pour le motif de mailles) */
   row: number
+  /** couleur du rang si le patron change de fil (sinon couleur de la pièce) */
+  color: string | null
   /** composantes radiale / axiale de la normale du profil */
   nr: number
   ny: number
@@ -31,12 +33,16 @@ export interface Ring {
 
 export type Part =
   | { kind: 'lathe', id: string, label: string, color: string, rings: Ring[], open: boolean, transform: Transform }
-  | { kind: 'panel', id: string, label: string, color: string, rows: { w: number, y: number, count: number }[], transform: Transform }
+  | { kind: 'panel', id: string, label: string, color: string, rows: { w: number, y: number, count: number, color: string | null }[], transform: Transform }
   | { kind: 'cord', id: string, label: string, color: string, points: Vec3[], radius: number, stitches: number }
   | { kind: 'bead', id: string, label: string, color: string, radius: number, position: Vec3, glossy: boolean, squash: number }
 
 export interface Model {
   parts: Part[]
+  /** pièce principale de l'assemblage (sur laquelle les autres sont posées) */
+  mainLabel?: string
+  /** pièces que l'on peut placer à la main */
+  placeable: { label: string, copies: number }[]
   /** boîte englobante approximative */
   min: Vec3
   max: Vec3
@@ -44,6 +50,8 @@ export interface Model {
 
 export interface ModelOptions {
   assembled: boolean
+  /** placements manuels (« libellé#exemplaire » → point d'attache), prioritaires sur l'estimation */
+  placements?: Record<string, { point: Vec3, normal: Vec3 }>
   /** nombre de rangs construits (dans l'ordre du patron) ; Infinity = tout */
   upTo?: number
 }
@@ -110,7 +118,7 @@ export function latheProfile(rounds: Round[], options: { stuffed: boolean, close
     ys.push(ys[i - 1] + Math.sqrt(Math.max(L * L - dr * dr, (0.22 * L) ** 2)))
   }
   const [rr, yy] = radii.length > 2 ? inflate(radii, ys, options.stuffed ? 4 : 1) : [radii, ys]
-  const rings: Omit<Ring, 'nr' | 'ny'>[] = rr.map((r, i) => ({ r, y: yy[i], count: rounds[i].count, row: i }))
+  const rings: Omit<Ring, 'nr' | 'ny'>[] = rr.map((r, i) => ({ r, y: yy[i], count: rounds[i].count, row: i, color: rounds[i].color ?? null }))
 
   // extrémités fermées : un petit dôme (anneau magique, fermeture « en coulissant le fil »)
   const DOME = 4
@@ -120,7 +128,7 @@ export function latheProfile(rounds: Round[], options: { stuffed: boolean, close
     for (let k = DOME; k >= 1; k--) {
       const a = (k / DOME) * (Math.PI / 2)
       const depth = options.flatStart ? (options.stuffed ? 0.35 : 0.06) : 0.55
-      cap.push({ r: r0 * Math.cos(a), y: -r0 * depth * Math.sin(a), count: Math.max(rings[0].count * Math.cos(a), 1), row: -k / DOME })
+      cap.push({ r: r0 * Math.cos(a), y: -r0 * depth * Math.sin(a), count: Math.max(rings[0].count * Math.cos(a), 1), row: -k / DOME, color: rings[0].color })
     }
     rings.unshift(...cap)
   }
@@ -128,7 +136,7 @@ export function latheProfile(rounds: Round[], options: { stuffed: boolean, close
     const last = rings[rings.length - 1]
     for (let k = 1; k <= DOME; k++) {
       const a = (k / DOME) * (Math.PI / 2)
-      rings.push({ r: last.r * Math.cos(a), y: last.y + last.r * 0.55 * Math.sin(a), count: Math.max(last.count * Math.cos(a), 1), row: last.row + k / DOME })
+      rings.push({ r: last.r * Math.cos(a), y: last.y + last.r * 0.55 * Math.sin(a), count: Math.max(last.count * Math.cos(a), 1), row: last.row + k / DOME, color: last.color })
     }
   }
 
@@ -174,15 +182,35 @@ interface Built {
   volume: number
 }
 
+// Profils mémorisés : les rangs (objets du cache du parseur) servent de clé, ce qui permet à
+// l'affichage de réutiliser les géométries des pièces inchangées (curseur « construction »).
+const profileCache = new WeakMap<Round, Map<string, Ring[]>>()
+
+function cachedProfile(piece: Piece, rounds: Round[], complete: boolean): Ring[] {
+  const last = rounds[rounds.length - 1]
+  const key = `${rounds.length}|${complete}|${piece.stuffed}|${piece.joinedStart}|${piece.open}|${rounds[0].key}`
+  let byKey = profileCache.get(last)
+  if (!byKey) {
+    byKey = new Map()
+    profileCache.set(last, byKey)
+  }
+  let rings = byKey.get(key)
+  if (!rings) {
+    rings = latheProfile(rounds, {
+      stuffed: piece.stuffed,
+      // une pièce montée sur d'autres (corps du cœur) est fermée par celles-ci : couvercle plat
+      closeStart: piece.joinedStart || rounds[0].count <= 12,
+      // pièce non rembourrée (bonnet, panier) : le fond reste plat
+      flatStart: piece.joinedStart || !piece.stuffed,
+      closeEnd: complete && !piece.open,
+    })
+    byKey.set(key, rings)
+  }
+  return rings
+}
+
 function buildLathe(piece: Piece, rounds: Round[], complete: boolean): Built {
-  const rings = latheProfile(rounds, {
-    stuffed: piece.stuffed,
-    // une pièce montée sur d'autres (corps du cœur) est fermée par celles-ci : couvercle plat
-    closeStart: piece.joinedStart || rounds[0].count <= 12,
-    // pièce non rembourrée (bonnet, panier) : le fond reste plat
-    flatStart: piece.joinedStart || !piece.stuffed,
-    closeEnd: complete && !piece.open,
-  })
+  const rings = cachedProfile(piece, rounds, complete)
   let volume = 0
   for (let i = 1; i < rings.length; i++) volume += Math.PI * rings[i].r ** 2 * (rings[i].y - rings[i - 1].y)
   return {
@@ -230,7 +258,7 @@ export function buildModel(pieces: Piece[], cords: CordPiece[], details: Details
       let y = 0
       const rows = rounds.map((r, i) => {
         if (i > 0) y += rowHeight(r)
-        return { w: Math.max(r.count, 1), y, count: Math.max(r.count, 1) }
+        return { w: Math.max(r.count, 1), y, count: Math.max(r.count, 1), color: r.color ?? null }
       })
       built.push({ b: null, piece, panel: { kind: 'panel', id: nextId('panel'), label: piece.label, color: piece.color, rows, transform: identity() } })
     } else {
@@ -240,10 +268,10 @@ export function buildModel(pieces: Piece[], cords: CordPiece[], details: Details
   const complete = budget > 0 || upTo === Infinity
 
   if (options.assembled && complete) {
-    const assembled = assemble(built, cords, details)
-    if (assembled) return withBounds(assembled)
+    const assembled = assemble(built, cords, details, options.placements ?? {})
+    if (assembled) return withBounds(assembled.parts, assembled.mainLabel, built)
   }
-  return withBounds(layoutSideBySide(built, complete ? cords : []))
+  return withBounds(layoutSideBySide(built, complete ? cords : []), undefined, [])
 }
 
 function lathePart(b: Built, transform: Transform): Part {
@@ -364,7 +392,39 @@ export function orient(yDir: Vec3, facing: Vec3): Vec3 {
   return [Math.atan2(y[2], y[1]), ry, 0]
 }
 
-function assemble(items: { b: Built | null, panel: Part | null, piece: Piece }[], cords: CordPiece[], details: Details): Part[] | null {
+/** Clé d'un placement manuel : une oreille sur deux, etc. */
+export const placementKey = (label: string, copy: number) => `${label}#${copy}`
+
+type Spot = { t: number, angles: number[], sink: number, onHead?: boolean }
+
+/**
+ * Où poser chaque type de pièce sur la pièce principale, selon son orientation.
+ * t : position le long de l'axe (0 début → 1 fin) ; angles autour de l'axe (0 = devant, ou dessus
+ * quand le corps est couché) ; sink : profondeur d'enfoncement ; onHead : sur la tête si elle existe.
+ */
+const ASSEMBLY: Record<'forward' | 'upright', Partial<Record<PieceKind, Spot>>> = {
+  forward: {
+    ear: { t: 0.4, angles: [Math.PI * 0.3, -Math.PI * 0.3], sink: 0.6 },
+    arm: { t: 0.35, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.4 },
+    leg: { t: 0.62, angles: [Math.PI * 0.78, -Math.PI * 0.78], sink: 0.4 },
+    wing: { t: 0.5, angles: [Math.PI / 2, -Math.PI / 2], sink: 0.3 },
+  },
+  upright: {
+    ear: { t: 0.9, angles: [Math.PI * 0.42, -Math.PI * 0.42], sink: 0.5, onHead: true },
+    arm: { t: 0.62, angles: [Math.PI / 2, -Math.PI / 2], sink: 0.5 },
+    leg: { t: 0.06, angles: [Math.PI * 0.18, -Math.PI * 0.18], sink: 0.3 },
+    tail: { t: 0.2, angles: [Math.PI], sink: 0.3 },
+    wing: { t: 0.6, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.3 },
+    muzzle: { t: 0.45, angles: [0], sink: 0.5, onHead: true },
+  },
+}
+
+function assemble(
+  items: { b: Built | null, panel: Part | null, piece: Piece }[],
+  cords: CordPiece[],
+  details: Details,
+  placements: Record<string, { point: Vec3, normal: Vec3 }>,
+): { parts: Part[], mainLabel: string } | null {
   const lathes = items.filter((i): i is { b: Built, panel: null, piece: Piece } => !!i.b)
   if (!lathes.length) return null
   const singles = lathes.filter((i) => i.piece.copies === 1)
@@ -404,10 +464,33 @@ function assemble(items: { b: Built | null, panel: Part | null, piece: Piece }[]
     used.add(b)
   }
 
+  // une pièce ouverte (oreille, bras) se coud par son ouverture : axe retourné vers la surface,
+  // l'ouverture (fin de la pièce) vient se poser sur `at` ; une pièce fermée part de la surface
+  const sew = (b: Built, at: Vec3, n: Vec3, sink: number) => {
+    if (b.piece.open) {
+      const end = b.rings[b.rings.length - 1].y
+      attach(b, [at[0] + n[0] * end, at[1] + n[1] * end, at[2] + n[2] * end], [-n[0], -n[1], -n[2]], -sink)
+    } else {
+      attach(b, at, n, sink)
+    }
+  }
+
+  // placements manuels d'abord ; un 2e exemplaire non placé est posé en symétrique du 1er
+  for (const i of lathes) {
+    if (i === main) continue
+    const own = Array.from({ length: i.piece.copies }, (_, c) => placements[placementKey(i.piece.label, c)])
+    if (!own.some(Boolean)) continue
+    for (let c = 0; c < i.piece.copies; c++) {
+      const pl = own[c] ?? (c === 1 && own[0] ? { point: [-own[0].point[0], own[0].point[1], own[0].point[2]] as Vec3, normal: [-own[0].normal[0], own[0].normal[1], own[0].normal[2]] as Vec3 } : null)
+      if (pl) sew(i.b, pl.point, pl.normal, 0.4)
+    }
+    used.add(i.b)
+  }
+
   // pièces montées sous/sur l'ouverture du corps (lobes du cœur, jambes d'un ours…)
   if (main.piece.joinedStart && before.length) {
     const R = main.b.startR
-    before.forEach((i, k) => {
+    before.filter((i) => !used.has(i.b)).forEach((i, k) => {
       const spread = before.length === 1 ? 0 : (k / (before.length - 1) - 0.5) * 2
       const x = spread * R * 0.37
       if (mode === 'down') {
@@ -434,24 +517,7 @@ function assemble(items: { b: Built | null, panel: Part | null, piece: Piece }[]
   const faceFrame = frame
 
   // positions des pièces annexes, selon le type et l'orientation
-  const spots: Record<PieceKind, { t: number, angles: number[], sink: number, onHead?: boolean } | null> = mode === 'forward'
-    ? {
-        // angle 0 = dessus du corps
-        ear: { t: 0.4, angles: [Math.PI * 0.3, -Math.PI * 0.3], sink: 0.6 },
-        arm: { t: 0.35, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.4 },
-        leg: { t: 0.62, angles: [Math.PI * 0.78, -Math.PI * 0.78], sink: 0.4 },
-        tail: null, wing: { t: 0.5, angles: [Math.PI / 2, -Math.PI / 2], sink: 0.3 },
-        head: null, body: null, muzzle: null, other: null,
-      }
-    : {
-        ear: { t: 0.9, angles: [Math.PI * 0.42, -Math.PI * 0.42], sink: 0.5, onHead: true },
-        arm: { t: 0.62, angles: [Math.PI / 2, -Math.PI / 2], sink: 0.5 },
-        leg: { t: 0.06, angles: [Math.PI * 0.18, -Math.PI * 0.18], sink: 0.3 },
-        tail: { t: 0.2, angles: [Math.PI], sink: 0.3 },
-        wing: { t: 0.6, angles: [Math.PI * 0.62, -Math.PI * 0.62], sink: 0.3 },
-        muzzle: { t: 0.45, angles: [0], sink: 0.5, onHead: true },
-        head: null, body: null, other: null,
-      }
+  const spots = ASSEMBLY[mode === 'forward' ? 'forward' : 'upright']
 
   for (const i of lathes) {
     if (used.has(i.b)) continue
@@ -463,17 +529,7 @@ function assemble(items: { b: Built | null, panel: Part | null, piece: Piece }[]
       const angle = spot.angles[c]
       let n = f.normal(spot.t, angle)
       if (kind === 'leg' && mode === 'up') n = [n[0] * 0.5, -1, n[2] * 0.5]
-      const at = f.point(spot.t, angle)
-      if (i.piece.open) {
-        // une pièce ouverte (oreille, bras) se coud par son ouverture : axe retourné vers la surface,
-        // l'ouverture (fin de la pièce) vient se poser sur `at`
-        const end = i.b.rings[i.b.rings.length - 1].y
-        const inward: Vec3 = [-n[0], -n[1], -n[2]]
-        attach(i.b, [at[0] + n[0] * end, at[1] + n[1] * end, at[2] + n[2] * end], inward, -spot.sink)
-      } else {
-        // pièce fermée : elle part de la surface par son début
-        attach(i.b, at, n, spot.sink)
-      }
+      sew(i.b, f.point(spot.t, angle), n, spot.sink)
     }
     used.add(i.b)
   }
@@ -521,10 +577,11 @@ function assemble(items: { b: Built | null, panel: Part | null, piece: Piece }[]
     const tip: Vec3 = mode === 'forward' ? [p[0], p[1], p[2] + 0.45] : p
     parts.push({ kind: 'bead', id: nextId('nose'), label: 'Nez', color: details.nose.color, radius: 0.6, position: tip, glossy: false, squash: 0.8 })
   }
-  return parts
+  return { parts, mainLabel: main.piece.label }
 }
 
-function withBounds(parts: Part[]): Model {
+function withBounds(parts: Part[], mainLabel?: string, built: { b: Built | null, piece: Piece }[] = []): Model {
+  const placeable = built.filter((i) => i.b && i.piece.label !== mainLabel).map((i) => ({ label: i.piece.label, copies: i.piece.copies }))
   const min: Vec3 = [Infinity, Infinity, Infinity]
   const max: Vec3 = [-Infinity, -Infinity, -Infinity]
   const grow = (p: Vec3, r = 0) => {
@@ -543,6 +600,6 @@ function withBounds(parts: Part[]): Model {
       grow(p.transform.position, extent)
     }
   }
-  if (!parts.length) return { parts, min: [0, 0, 0], max: [0, 0, 0] }
-  return { parts, min, max }
+  if (!parts.length) return { parts, mainLabel, placeable, min: [0, 0, 0], max: [0, 0, 0] }
+  return { parts, mainLabel, placeable, min, max }
 }

@@ -85,7 +85,9 @@ export function buildPieces(pattern: Pattern): Piece[] {
     const ownYarn = own.split(/[.\n!;]/).filter((x) => !DETAIL.test(x)).join('\n')
     p.flattened = /\b(?:[àa]\s+plat|aplatir|aplatie?|flatten(?:ed)?|sew\s+flat|close\s+flat)\b/i.test(own)
     p.stuffed = !p.flat && !p.flattened && !CONTAINER.test(`${p.label} ${pattern.name}`)
-    p.color = pattern.pieceColors?.[p.label] ?? findYarnColor(p.sections.join(' ')) ?? findYarnColor(ownYarn) ?? fallback
+    // une pièce qui change de fil : les couleurs citées dans ses rangs ne sont pas celle de départ
+    const changes = p.rounds.some((r) => r.color)
+    p.color = pattern.pieceColors?.[p.label] ?? findYarnColor(p.sections.join(' ')) ?? (changes ? null : findYarnColor(ownYarn)) ?? fallback
   }
   return pieces
 }

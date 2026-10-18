@@ -11,16 +11,25 @@ fonctionne hors connexion.
   filtres par progression et par tag, tri
 - **Patron** : instructions interactives (on coche un rang directement dans le texte, le rang en cours
   est mis en évidence), photo, matériel, fichier joint (PDF, image ou texte avec aperçu), étapes libres
-  modifiables et réordonnables
+  modifiables et réordonnables, **estimation du fil** nécessaire (au total et par couleur, d'après les
+  mailles et la taille du crochet), **chronomètre** de travail (temps total et sur 7 jours)
 - **Compteur** : un rang à la fois, gros anneau de comptage tactile, « Rang terminé — suivant »,
-  annulation, écran maintenu allumé, raccourcis clavier
+  annulation, écran maintenu allumé, raccourcis clavier, **note et photo par rang**
 - **Rangs** : vue **tissu** réaliste (chaque maille dessinée brin par brin, rangs non faits estompés)
   ou **diagramme** à symboles internationaux ; contrôle des comptes ; export SVG et impression
 - **3D** : chaque pièce reconstruite à partir des comptes et de la hauteur des mailles, texture de
   vraies mailles, assemblage déduit des noms (tête, oreilles, bras, jambes, queue, yeux, nez…),
   curseur « construction » pour voir la pièce après n'importe quel rang, couleurs du fil
-  modifiables, image PNG
-- **Sauvegarde** : export / import JSON complet, suppression annulable, patrons d'exemple originaux
+  modifiables, **changements de couleur par rang**, **placement manuel** des pièces (on touche le
+  modèle à l'endroit où coudre), contrôle au clavier, image PNG
+- **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande)
+- **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
+  ou fichier `.crochet.json`
+- **Sauvegarde** : export / import JSON complet, suppression annulable, patrons d'exemple originaux,
+  stockage persistant demandé au navigateur, rappel d'export, **synchronisation facultative avec un
+  fichier** (Chrome / Edge : un fichier dans un dossier Drive, Dropbox ou iCloud suffit à retrouver ses
+  patrons sur un autre ordinateur)
+- **Français / anglais** (langue du navigateur par défaut, modifiable dans le menu)
 - Application installable (PWA), liens directs `#/patron/<id>/<onglet>`, thème sombre, barre
   d'onglets en bas sur téléphone
 
@@ -48,6 +57,8 @@ Broder le nez rose, coudre deux yeux noirs.
 - Comptes `(18)` vérifiés ; multi-tailles `6 (8, 10) sc` ; rangs aller-retour (`Row`, « tourner »)
 - Pour la 3D : « (x2) » duplique une pièce, « suite du … » prolonge la précédente, « à plat » aplatit,
   la couleur du fil est lue dans le texte, les noms de pièces guident l'assemblage
+- Changements de couleur : légende (`Couleur A : rose`, `MC: grey`), mention dans le rang
+  (`R5 : 18 ms en rose`, `Rnd 3: sc around with color A`, `(rouge)`) ou ligne « Changer pour le fil blanc. »
 
 ## Développement
 
@@ -67,26 +78,36 @@ Déploiement automatique sur GitHub Pages à chaque push sur `main` ; les pull r
 ## Pile technique
 
 React 19, TypeScript strict, Vite 8, three.js (chargé à la demande), lucide-react, Vitest, Playwright,
-oxlint. Données dans localStorage (patrons) et IndexedDB (photos, fichiers).
+oxlint, pdf.js (chargé à la demande). Données dans localStorage (patrons, préférences) et IndexedDB
+(photos, fichiers, lien vers le fichier de synchronisation).
+
+Les tests e2e comparent aussi les rendus tissu et 3D à des images de référence
+(`e2e/screenshots.spec.ts-snapshots/`) ; après un changement voulu des rendus :
+`npx playwright test screenshots --update-snapshots`.
 
 ## Structure
 
 ```
 src/
-  domain/      parseur de patrons, pièces, couleurs de fil, progression, types
-  storage/     localStorage, IndexedDB, images, exemples, migration des anciennes données
+  domain/      parseur de patrons, pièces, couleurs de fil, progression, fil, chronomètre, types
+  storage/     localStorage, IndexedDB, images, exemples, migration, préférences, partage,
+               synchronisation, extraction PDF
+  i18n/        traductions (le texte français sert de clé ; en.ts pour l'anglais)
   render2d/    rendu tissu (canvas), symboles et export SVG du diagramme
   render3d/    modèle 3D pur (profils, assemblage) + rendu three.js (textures, géométries, scène)
   ui/          composants génériques (dialogue, menu, contrôle segmenté, progression…)
   features/    bibliothèque et écran patron (onglets Patron, Compteur, Rangs, 3D, formulaire)
-  hooks/       persistance, routage, messages, wake lock, fichiers
+  hooks/       persistance, routage, messages, wake lock, fichiers, préférences, synchronisation
   styles/      jetons de design, base, composants, vues
 tests/         tests unitaires      e2e/   tests Playwright      docs/REVIEW.md   revue de code
 ```
 
 ## Limitations connues
 
-- Données locales au navigateur : pas de synchronisation entre appareils (utilisez l'export)
-- L'assemblage 3D est une estimation à partir des noms de pièces ; les pièces non reconnues
-  sont posées à côté
-- Mailles dans les arceaux comptées sans contrôle ; motifs de couleurs non représentés
+- Données locales au navigateur ; la synchronisation par fichier n'existe que sur Chrome / Edge
+  (ailleurs : export / import ou lien de partage)
+- L'assemblage 3D est une estimation à partir des noms de pièces (corrigeable à la main) ; les pièces
+  non reconnues sont posées à côté
+- Mailles dans les arceaux comptées sans contrôle ; motifs jacquard (plusieurs couleurs dans un même
+  rang) non représentés ; un PDF scanné (image) ne contient pas de texte à extraire
+- L'estimation du fil est un ordre de grandeur (± 20 %), qui dépend de la tension de chacun

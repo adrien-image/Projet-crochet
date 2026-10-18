@@ -147,3 +147,12 @@ test('texte par section', () => {
   assert.match(s.get('TÊTE') ?? '', /Broder le nez/)
   assert.doesNotMatch(s.get('TÊTE') ?? '', /4 ms/)
 })
+
+test('changements de couleur par rang', () => {
+  const r = one('TÊTE\nR1 : 6 ms en rond (6)\nR2 : aug dans chaque maille en rose (12)\nR3 : 12 ms\nChanger pour le fil blanc.\nR4 : 12 ms\nBRAS\nR1 : 6 ms')
+  assert.deepEqual(r.map((x) => x.color), [null, '#e99aae', '#e99aae', '#f4f1ea', null])
+  const en = one('Color A: grey\nMC: white\nRnd 1: 6 sc with color A (6)\nRnd 2: inc around (12)\nRnd 3: sc around, change to MC\nRnd 4: sc around (red)')
+  assert.deepEqual(en.map((x) => x.color), ['#9b9a9c', '#9b9a9c', '#f4f1ea', '#c3323c'])
+  // les patrons d'exemple n'ont pas de changement de couleur
+  assert.ok(parsePattern(samplePattern().text).every((x) => x.color === null))
+})

@@ -6,7 +6,20 @@ import type { Part, Ring, Vec3 } from './model'
 
 const SEGMENTS = 96
 
-export function latheGeometry(rings: Ring[]): THREE.BufferGeometry {
+const tmp = new THREE.Color()
+
+/** Couleurs par sommet (changements de fil) : null si la pièce est unie. */
+function vertexColors(colors: (string | null)[], base: string): Float32Array | null {
+  if (colors.every((c) => !c || c === base)) return null
+  const out = new Float32Array(colors.length * 3)
+  colors.forEach((c, i) => {
+    tmp.set(c ?? base)
+    out.set([tmp.r, tmp.g, tmp.b], i * 3)
+  })
+  return out
+}
+
+export function latheGeometry(rings: Ring[], base = '#ffffff'): THREE.BufferGeometry {
   // Chaque bande entre deux anneaux a ses propres sommets : la texture y compte les mailles du rang
   // supérieur, ce qui évite le cisaillement des colonnes de mailles quand le compte change.
   const cols = SEGMENTS + 1
@@ -14,9 +27,13 @@ export function latheGeometry(rings: Ring[]): THREE.BufferGeometry {
   const pos = new Float32Array(bands * 2 * cols * 3)
   const nor = new Float32Array(bands * 2 * cols * 3)
   const uv = new Float32Array(bands * 2 * cols * 2)
+  const colors: (string | null)[] = []
   const index: number[] = []
   for (let i = 0; i < bands; i++) {
     const count = Math.max(1, Math.round(rings[i + 1].count))
+    // la bande prend la couleur du rang qu'elle représente (l'anneau supérieur)
+    const bandColor = rings[i + 1].color
+    for (let k = 0; k < 2 * cols; k++) colors.push(bandColor)
     for (let side = 0; side < 2; side++) {
       const ring = rings[i + side]
       for (let j = 0; j < cols; j++) {
@@ -40,16 +57,20 @@ export function latheGeometry(rings: Ring[]): THREE.BufferGeometry {
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3))
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  const vc = vertexColors(colors, base)
+  if (vc) g.setAttribute('color', new THREE.BufferAttribute(vc, 3))
   g.setIndex(index)
   return g
 }
 
-export function panelGeometry(rows: { w: number, y: number, count: number }[]): THREE.BufferGeometry {
+export function panelGeometry(rows: { w: number, y: number, count: number, color?: string | null }[], base = '#ffffff'): THREE.BufferGeometry {
   const list = rows.length === 1 ? [rows[0], { ...rows[0], y: rows[0].y + 0.9 }] : rows
   const cols = Math.max(2, Math.max(...list.map((r) => r.count))) + 1
   const pos = new Float32Array(list.length * cols * 3)
   const uv = new Float32Array(list.length * cols * 2)
+  const colors: (string | null)[] = []
   list.forEach((row, i) => {
+    for (let j = 0; j < cols; j++) colors.push(row.color ?? null)
     for (let j = 0; j < cols; j++) {
       const f = j / (cols - 1)
       const k = i * cols + j
@@ -71,6 +92,8 @@ export function panelGeometry(rows: { w: number, y: number, count: number }[]): 
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  const vc = vertexColors(colors, base)
+  if (vc) g.setAttribute('color', new THREE.BufferAttribute(vc, 3))
   g.setIndex(index)
   g.computeVertexNormals()
   return g

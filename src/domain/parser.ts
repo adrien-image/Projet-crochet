@@ -1,4 +1,5 @@
 import type { Cord, Notation, ParseOptions, Round, StitchType } from './types'
+import { findYarnColor } from './colors'
 
 
 // Abréviations de plusieurs lettres (après normalisation : minuscules, sans accents).
@@ -228,6 +229,46 @@ const CHAIN_SPACE_RE = /\b(?:ch-?\d*[\s-]*sp(?:ace)?s?|arceaux?|espaces?\s+de\s+
 const TURN_RE = /\b(?:turn|tourner|tournez|tourne)\b/i
 const BLO_RE = /\b(?:blo|back\s+loops?(?:\s+only)?|brins?\s+arri[eè]res?|bra)\b/i
 const FLO_RE = /\b(?:flo|front\s+loops?(?:\s+only)?|brins?\s+avant|bav)\b/i
+// --- changements de couleur --------------------------------------------------
+// « Couleur A : rose », « MC: grey », « CC1 = white »
+const LEGEND_RE = /^\s*(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC\d?|CP|CS))\s*[:=–—-]\s*(.+)$/i
+// « en rose », « avec le fil blanc », « in pink », « change to white », « (rose) »
+const INLINE_COLOR_RE = /\b(?:en|avec(?:\s+le)?(?:\s+fil)?|au\s+fil|fil|couleur|coloris|in|with|using|change\s+to|switch\s+to|changer\s+(?:pour|en|de\s+couleur\s*:?)|passer\s+(?:au|à|en)|prendre\s+le\s+fil)\s+(?:le\s+|la\s+|l['’]|du\s+|de\s+la\s+|the\s+)?([^,;.()\n]{2,40})/gi
+const PAREN_COLOR_RE = /\(([^()]{2,24})\)/g
+const CHANGE_LINE_RE = /\b(?:changer|change|switch|passer\s+au|prendre\s+le\s+fil|joindre\s+le\s+fil|attach|join\s+(?:new\s+)?(?:yarn|colou?r))\b/i
+const LETTER_REF_RE = /\b(?:(?:couleur|coloris|colou?r|fil)\s+([A-Z]\d?|\d)|(MC|CC\d?|CP|CS))\b/
+
+function colorLegend(text: string): Map<string, string> {
+  const legend = new Map<string, string>()
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(LEGEND_RE)
+    const color = m && findYarnColor(m[3])
+    if (m && color) legend.set((m[1] || m[2]).toUpperCase(), color)
+  }
+  return legend
+}
+
+/** Couleur nommée dans une instruction (« en rose », « with CC », « (blanc) »), ou null. */
+function colorIn(line: string, legend: Map<string, string>): string | null {
+  const letter = line.match(LETTER_REF_RE)
+  if (letter) {
+    const c = legend.get((letter[1] || letter[2]).toUpperCase())
+    if (c) return c
+  }
+  for (const m of line.matchAll(INLINE_COLOR_RE)) {
+    // seuls les premiers mots après « en » / « in » : « en rond » ne désigne pas une couleur
+    const c = findYarnColor(m[1].split(/\s+/).slice(0, 3).join(' '))
+    if (c) return c
+  }
+  for (const m of line.matchAll(PAREN_COLOR_RE)) {
+    if (m[1].trim().split(/\s+/).length <= 3) {
+      const c = findYarnColor(m[1])
+      if (c) return c
+    }
+  }
+  return null
+}
+
 const CONTINUES_RE = /\bsuite\s+(?:du|de|des|d['’])|\bcontinued?\b|\(cont\.?\)/i
 const SECTION_STOPWORDS = /^(?:notes?|mat[ée]riel|fournitures|abr[ée]viations?|l[ée]gende|astuces?|conseils?|remarques?|materials?|supplies|abbreviations?|tips?|gauge|[ée]chantillon|taille|size)\b/i
 
@@ -338,6 +379,9 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
   let section: string | null = null
   let piece = -1
   let prevInSection: Round | null = null
+  const legend = colorLegend(text)
+  // couleur en cours dans la pièce (null : couleur de la pièce)
+  let color: string | null = null
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim()
@@ -350,14 +394,19 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
         if (!(CONTINUES_RE.test(sec) && prevInSection)) {
           prevInSection = null
           piece++
+          color = null
         }
         section = sec
+      } else if (CHANGE_LINE_RE.test(line)) {
+        // « Changer pour le fil blanc. » entre deux rangs
+        color = colorIn(line, legend) ?? color
       }
       continue
     }
     if (piece < 0) piece = 0
 
     let instruction = rm[4]
+    color = colorIn(instruction, legend) ?? color
     const flat = /^rows?$/i.test(rm[1]) || TURN_RE.test(instruction)
     const inSpace = CHAIN_SPACE_RE.test(instruction)
     const loop = BLO_RE.test(instruction) ? 'blo' : FLO_RE.test(instruction) ? 'flo' : null
@@ -402,6 +451,7 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
         consumed,
         prevCount: prevInSection ? prevCount : null,
         expected,
+        color,
         valid: expected == null || count === expected,
         fits: prevInSection && stitches.length && !inSpace && !isStructuralOnly(stitches) ? consumed === prevCount : null,
       }

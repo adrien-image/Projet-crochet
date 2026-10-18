@@ -202,7 +202,16 @@ export interface FabricStyle {
 }
 
 export function drawFabric(ctx: CanvasRenderingContext2D, layout: FabricLayout, style: FabricStyle): void {
-  const pal = palette(style.color)
+  // une palette par couleur de fil (changements de couleur d'un rang à l'autre)
+  const palettes = new Map<string, Palette>()
+  const paletteFor = (c: string) => {
+    let p = palettes.get(c)
+    if (!p) {
+      p = palette(c)
+      palettes.set(c, p)
+    }
+    return p
+  }
   const u = layout.unit
   const anyDone = !!style.done && layout.rows.some((r) => style.done?.has(r.round.key))
   for (const row of layout.rows) {
@@ -210,6 +219,7 @@ export function drawFabric(ctx: CanvasRenderingContext2D, layout: FabricLayout, 
     ctx.save()
     ctx.globalAlpha = faded ? 0.3 : 1
     // fond du tissu : les creux entre les mailles laissent voir l'envers, plus sombre
+    const pal = paletteFor(row.round.color ?? style.color)
     ctx.fillStyle = pal.deep
     ctx.globalAlpha *= 0.7
     const r = Math.min(u * 0.35, row.h / 2)

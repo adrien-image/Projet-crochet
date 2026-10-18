@@ -3,6 +3,8 @@
 
 const DB_NAME = 'mon-crochet'
 const STORE = 'assets'
+/** petites valeurs non sérialisables en JSON (poignée du fichier de synchronisation…) */
+const KV = 'kv'
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
 const memory = new Map<string, Blob>()
@@ -22,8 +24,12 @@ function openDb(): Promise<IDBDatabase | null> {
   dbPromise = new Promise((resolve) => {
     if (typeof indexedDB === 'undefined') return resolve(null)
     try {
-      const req = indexedDB.open(DB_NAME, 1)
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE)
+      const req = indexedDB.open(DB_NAME, 2)
+      req.onupgradeneeded = () => {
+        const db = req.result
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
+        if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV)
+      }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => resolve(null)
       req.onblocked = () => resolve(null)
@@ -34,11 +40,11 @@ function openDb(): Promise<IDBDatabase | null> {
   return dbPromise
 }
 
-async function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> {
+async function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>, storeName = STORE): Promise<T | undefined> {
   const db = await openDb()
   if (!db) return undefined
   return new Promise<T>((resolve, reject) => {
-    const req = fn(db.transaction(STORE, mode).objectStore(STORE))
+    const req = fn(db.transaction(storeName, mode).objectStore(storeName))
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
@@ -99,5 +105,20 @@ export async function collectGarbage(keep: Set<string>): Promise<void> {
   const ids = await run('readonly', (s) => s.getAllKeys()).catch(() => undefined)
   for (const id of ids || []) {
     if (typeof id === 'string' && !keep.has(id)) await run('readwrite', (s) => s.delete(id)).catch(() => undefined)
+  }
+}
+
+const kvMemory = new Map<string, unknown>()
+
+export async function kvGet<T>(key: string): Promise<T | undefined> {
+  if (kvMemory.has(key)) return kvMemory.get(key) as T
+  return (await run<T>('readonly', (st) => st.get(key) as IDBRequest<T>, KV).catch(() => undefined))
+}
+
+export async function kvSet(key: string, value: unknown): Promise<void> {
+  const ok = await run<unknown>('readwrite', (st) => (value === undefined ? st.delete(key) : st.put(value, key)) as IDBRequest<unknown>, KV).then(() => true, () => false)
+  if (!ok || !(await openDb())) {
+    if (value === undefined) kvMemory.delete(key)
+    else kvMemory.set(key, value)
   }
 }

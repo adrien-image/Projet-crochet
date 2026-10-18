@@ -3,6 +3,7 @@ import type { Round, StitchType } from '../domain/types'
 import { glyphPaths, chartLayout, directionArrow, CHART_SIZE, RING_R } from './glyphs'
 import { sectionColor } from '../domain/colors'
 import { STITCH_INFO } from '../domain/parser'
+import { t } from '../i18n'
 
 const esc = (s: unknown) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 
@@ -45,14 +46,14 @@ export function chartsToSvg(title: string, rounds: Round[], done: Set<string> = 
     }
     const label = `${r.label}${done.has(r.key) ? ' ✓' : ''}`
     out.push(`<text x="${c}" y="${layout.flat ? c - 16 : c + 4}" text-anchor="middle" font-size="12" font-weight="600" fill="#3e3529">${esc(label)}</text>`)
-    out.push(`<text x="${c}" y="${CHART_SIZE + 12}" text-anchor="middle" font-size="10" fill="#8a7d6b">${esc(`${r.count} m.${r.section ? ` · ${r.section.slice(0, 22)}` : ''}`)}</text>`)
+    out.push(`<text x="${c}" y="${CHART_SIZE + 12}" text-anchor="middle" font-size="10" fill="#8a7d6b">${esc(`${t('{n} m.', { n: r.count })}${r.section ? ` · ${r.section.slice(0, 22)}` : ''}`)}</text>`)
     out.push('</g>')
   })
-  used.forEach((t, i) => {
+  used.forEach((s, i) => {
     const x = 20 + (i % 3) * 240
     const y = legendTop + 20 + Math.floor(i / 3) * 24
-    out.push(`<g transform="translate(${x + 8} ${y - 4})">${glyphSvg(t, 6, '#c2703d', 1.8)}</g>`)
-    out.push(`<text x="${x + 24}" y="${y}" font-size="12" fill="#3e3529">${esc(STITCH_INFO[t]?.label ?? t)}</text>`)
+    out.push(`<g transform="translate(${x + 8} ${y - 4})">${glyphSvg(s, 6, '#c2703d', 1.8)}</g>`)
+    out.push(`<text x="${x + 24}" y="${y}" font-size="12" fill="#3e3529">${esc(t(STITCH_INFO[s]?.label ?? s))}</text>`)
   })
   out.push('</svg>')
   return out.join('\n')
