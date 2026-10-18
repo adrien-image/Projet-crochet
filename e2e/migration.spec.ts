@@ -22,7 +22,7 @@ test('anciennes données : fichiers vers IndexedDB, rangs séparés des étapes'
     return !!p.imageId && !!p.fileId && !p.image && !p.fileData
   })).toBe(true)
   await page.locator('.card').getByRole('link').click()
-  await expect(page.locator('.photo img')).toHaveAttribute('src', /^blob:/)
+  await expect(page.locator('.photo-main img')).toHaveAttribute('src', /^blob:/)
   await expect(page.locator('.panel', { hasText: 'notes.txt' })).toBeVisible()
   await expect(page.locator('.check-item')).toHaveCount(1)
 })

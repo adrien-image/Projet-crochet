@@ -35,6 +35,7 @@ interface Props {
   onOpen: (id: string, tab?: PatternTab) => void
   onNew: () => void
   onDelete: (id: string) => void
+  onDuplicate: (id: string) => void
   onExport: () => void
   onImport: (file: File) => void
   onRestoreSamples: () => void
@@ -193,7 +194,7 @@ export function LibraryView(props: Props) {
         ) : (
           <div className="grid">
             {visible.map((p) => (
-              <PatternCard key={p.id} pattern={p} onOpen={onOpen} onDelete={onDelete} onTag={setTag} />
+              <PatternCard key={p.id} pattern={p} onOpen={onOpen} onDelete={onDelete} onDuplicate={props.onDuplicate} onTag={setTag} />
             ))}
           </div>
         )}

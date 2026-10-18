@@ -45,6 +45,24 @@ export function heartPattern(): Pattern {
   })
 }
 
+export function beePattern(): Pattern {
+  return normalizePattern({
+    id: uid(),
+    name: 'Abeille rayée amigurumi (patron original)',
+    description: 'Exemple original fourni avec l\'application, en plusieurs couleurs : corps rayé jaune et noir, ailes blanches. Crochet 3 mm, coton, environ 9 cm. Modifie-le ou supprime-le librement !',
+    tags: ['amigurumi', 'abeille', 'exemple', 'multicolore'],
+    createdAt: new Date().toISOString(),
+    hook: '3 mm',
+    yarn: 'Coton jaune, noir et blanc',
+    text: 'Abeille rayée amigurumi — crochet 3 mm, fil coton, longueur ≈ 9 cm.\nTravailler en spirale. Pour changer de couleur, faire le dernier jeté de la maille précédente avec le nouveau fil ; laisser courir le fil inutilisé à l\'intérieur.\n\nCouleur A : jaune\nCouleur B : noir\nCouleur C : blanc\n\nCORPS (couleur A, de la tête vers le dard)\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4 : *2 ms, aug* x6 (24)\nR5 : *3 ms, aug* x6 (30)\nR6-R8 : 30 ms\nChanger pour le fil noir.\nR9-R10 : 30 ms\nChanger pour le fil jaune.\nR11-R12 : 30 ms\nR13-R14 : 30 ms en noir\nR15 : *3 ms, dim* x6 en jaune (24)\nR16 : 24 ms\nPlacer les yeux de sécurité entre R4 et R5, bourrer.\nR17 : *2 ms, dim* x6 en noir (18)\nR18 : *1 ms, dim* x6 (12)\nR19 : dim dans chaque maille (6)\nFermer, rentrer le fil : la pointe noire forme le dard.\n\nAILES (x2, couleur C)\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R5 : 18 ms\nFermer à plat, ne pas bourrer, coudre sur le dos entre R9 et R11.\n\nASSEMBLAGE\nDeux yeux noirs de 6 mm, broder un sourire noir sous les yeux. Terminé ! 🐝',
+    checklist: [
+      { id: uid() + 'b1', text: 'Préparer les fils jaune, noir et blanc', done: false },
+      { id: uid() + 'b2', text: 'Poser les yeux avant de fermer', done: false },
+      { id: uid() + 'b3', text: 'Coudre les ailes sur le dos', done: false },
+    ],
+  })
+}
+
 export function samplePatterns(): Pattern[] {
-  return [samplePattern(), heartPattern()]
+  return [samplePattern(), heartPattern(), beePattern()]
 }

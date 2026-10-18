@@ -164,7 +164,7 @@
 .photo img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
 .photo-empty { position: relative; display: block; width: 100%; padding: 0; border: 0; background: none; }
 .photo-empty .swatch { width: 100%; aspect-ratio: 16 / 10; display: block; }
-.photo-empty span {
+.photo-empty > span {
   position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 14px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 90%, transparent); font-weight: 600; font-size: 0.85rem;
   white-space: nowrap; box-shadow: var(--shadow-1);
@@ -319,8 +319,7 @@
 .analysis { font-size: 0.85rem; color: var(--ink-3); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
 .analysis.ok { color: var(--success); background: var(--success-soft); }
 .analysis.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.files { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 640px) { .files { grid-template-columns: 1fr; } }
+.files { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .file-slot {
   display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px dashed var(--line-2); border-radius: var(--radius);
   color: var(--ink-3); min-width: 0;
@@ -395,3 +394,69 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 .storage-state.ok { background: var(--success-soft); color: var(--success); }
 .storage-state.warn { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
 .storage-state p { color: var(--ink-2); }
+
+/* Photos de l'ouvrage */
+.photo-main { position: relative; display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.photo-main img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.photo-count {
+  position: absolute; right: 10px; bottom: 10px; padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;
+  background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--ink); backdrop-filter: blur(6px);
+}
+.photo-strip { display: flex; gap: 6px; padding: 8px; overflow-x: auto; background: var(--surface); scrollbar-width: thin; }
+.photo-thumb {
+  position: relative; flex: none; width: 52px; height: 52px; padding: 0; border-radius: 10px; overflow: hidden; cursor: pointer;
+  border: 2px solid transparent; background: var(--surface-3); color: var(--ink-3); display: grid; place-items: center;
+}
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-thumb.active { border-color: var(--accent); }
+.photo-thumb:focus-visible { box-shadow: var(--ring); }
+.photo-add { border: 1.5px dashed var(--line-2); background: var(--surface-2); }
+.photo-add:hover { color: var(--accent-strong); border-color: var(--accent); }
+.photo-add.disabled, .photo-empty-add.disabled { opacity: 0.5; pointer-events: none; }
+.photo-cover-mark { position: absolute; top: 3px; left: 3px; color: #fff; fill: var(--accent); filter: drop-shadow(0 1px 1px rgb(0 0 0 / 40%)); }
+.photo-missing { display: block; width: 100%; height: 100%; background: var(--surface-3); }
+.photo-empty-add {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 999px; font-size: 0.86rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+  background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--ink); backdrop-filter: blur(6px); box-shadow: var(--shadow-1);
+}
+.photo-error { margin: 0; padding: 0 10px 10px; background: var(--surface); }
+.lightbox { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
+.lightbox img { width: 100%; max-height: min(70vh, 720px); object-fit: contain; border-radius: var(--radius-sm); background: var(--surface-3); }
+@media (max-width: 640px) {
+  .lightbox { grid-template-columns: 1fr 1fr; }
+  .lightbox img { grid-column: 1 / -1; grid-row: 1; }
+  .lightbox-nav { justify-self: center; }
+}
+
+/* Photos dans le formulaire */
+.form-photos { display: flex; flex-direction: column; gap: 10px; }
+.form-photos-title { font-size: 0.9rem; }
+.form-photos-title .opt { font-weight: 400; color: var(--ink-3); font-size: 0.8rem; margin-left: 4px; }
+.form-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.form-photo { position: relative; aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-3); border: 1px solid var(--line); }
+.form-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.form-photo.cover { border: 2px solid var(--accent); }
+.form-photo-badge {
+  position: absolute; left: 6px; top: 6px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 700; background: var(--accent); color: var(--accent-ink);
+}
+.form-photo-actions { position: absolute; right: 4px; bottom: 4px; display: flex; gap: 4px; }
+.form-photo-actions .icon-btn { background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(6px); }
+.form-photo.add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; text-align: center;
+  font-size: 0.78rem; font-weight: 600; color: var(--ink-2); border: 1.5px dashed var(--line-2); background: var(--surface-2); cursor: pointer;
+}
+.form-photo.add:hover { color: var(--accent-strong); border-color: var(--accent); }
+.form-photo.add.disabled { opacity: 0.5; pointer-events: none; }
+
+/* Choix (duplication) */
+.choice-list { gap: 8px !important; }
+.choice {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1.5px solid var(--line); background: var(--surface);
+}
+.choice > span { display: flex; flex-direction: column; gap: 2px; }
+.choice input { margin-top: 3px; accent-color: var(--accent); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+.choice.disabled { opacity: 0.55; cursor: not-allowed; }

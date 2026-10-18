@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { ArrowLeft, Box, Download, Ellipsis, FileText, Grid3x3, Link2, ListOrdered, Pause, Pencil, Play, Share2, Trash2 } from 'lucide-react'
+import { ArrowLeft, Box, Copy, Download, Ellipsis, FileText, Grid3x3, Link2, ListOrdered, Pause, Pencil, Play, Share2, Trash2 } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
 import { formatDuration, startTimer, stopTimer, totalSeconds } from '../../domain/time'
@@ -31,6 +31,7 @@ interface Props {
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
+  onDuplicate: () => void
   onShare: (kind: ShareKind) => void
   update: Update
 }
@@ -78,6 +79,7 @@ export function PatternView(props: Props) {
               ...(canShare ? [{ label: t('Partager…'), icon: <Share2 size={16} />, onSelect: () => props.onShare('native') }] : []),
               { label: t('Copier le lien de partage'), icon: <Link2 size={16} />, onSelect: () => props.onShare('link') },
               { label: t('Télécharger le patron (fichier)'), icon: <Download size={16} />, onSelect: () => props.onShare('file') },
+              { label: t('Dupliquer le patron…'), icon: <Copy size={16} />, onSelect: props.onDuplicate },
               { label: t('Supprimer le patron'), icon: <Trash2 size={16} />, onSelect: props.onDelete, danger: true },
             ]} />
           </div>
@@ -111,7 +113,7 @@ export function PatternView(props: Props) {
 
         <section id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="tab-panel">
           <ErrorBoundary key={tab}>
-            {tab === 'patron' && <OverviewTab pattern={pattern} update={update} onOpenCounter={() => onTab('compteur')} onEdit={props.onEdit} />}
+            {tab === 'patron' && <OverviewTab pattern={pattern} update={update} onOpenCounter={() => onTab('compteur')} />}
             {tab === 'compteur' && <CounterTab pattern={pattern} update={update} />}
             {tab === 'rangs' && <RoundsTab pattern={pattern} update={update} />}
             {tab === '3d' && <Model3DTab pattern={pattern} update={update} />}

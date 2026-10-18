@@ -44,6 +44,18 @@ export interface RoundNote {
   photoId: string | null
   /** miniature (data:) */
   photoThumb: string | null
+  /** sauvegarde importée (data:), migrée vers IndexedDB */
+  photoData?: string
+}
+
+/** Photo supplémentaire de l'ouvrage (la couverture reste `imageId`). */
+export interface PatternPhoto {
+  /** image (IndexedDB) ; vide tant qu'une photo importée n'est pas migrée */
+  id: string
+  /** miniature (data:) */
+  thumb: string | null
+  /** sauvegarde importée (data:), migrée vers IndexedDB */
+  data?: string
 }
 
 /** Pièce placée à la main sur l'aperçu 3D (coordonnées du modèle assemblé). */
@@ -100,6 +112,8 @@ export interface Pattern {
   imageId: string | null
   /** miniature JPEG (data:) pour la grille */
   thumb: string | null
+  /** autres photos de l'ouvrage */
+  gallery: PatternPhoto[]
   /** fichier joint (IndexedDB) */
   fileId: string | null
   fileName: string | null

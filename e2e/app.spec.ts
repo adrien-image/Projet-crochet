@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   errors.set(page, list)
   page.on('pageerror', (e) => list.push(e.message))
   await page.goto('./')
-  await expect(page.locator('.card')).toHaveCount(2)
+  await expect(page.locator('.card')).toHaveCount(3)
 })
 
 test.afterEach(async ({ page }) => {
@@ -25,7 +25,7 @@ test('bibliothèque : filtres, tags, tri, recherche', async ({ page }) => {
   await expect(page.locator('.card')).toHaveCount(1)
   await page.locator('.tag-bar').getByRole('button', { name: /cœur/ }).click()
   await page.getByLabel('Trier').selectOption('name')
-  await expect(page.locator('.card-title').first()).toContainText('Coussin')
+  await expect(page.locator('.card-title').first()).toContainText('Abeille')
   await page.getByLabel('Rechercher').fill('souris')
   await expect(page.locator('.card')).toHaveCount(1)
 })
@@ -43,7 +43,7 @@ test('patron : cocher un rang dans le texte, onglets dans l\'URL', async ({ page
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Rangs' })).toHaveAttribute('aria-selected', 'true')
   await page.goBack()
-  await expect(page.locator('.card')).toHaveCount(2)
+  await expect(page.locator('.card')).toHaveCount(3)
 })
 
 test('compteur : mailles, rang terminé, annulation, persistance', async ({ page }) => {
@@ -127,9 +127,9 @@ test('création : formulaire, tailles, suppression annulable', async ({ page }) 
   await expect(page.locator('.chart-card').first()).toContainText('24 m.')
   await page.getByRole('button', { name: "Plus d'actions" }).click()
   await page.getByRole('menuitem', { name: 'Supprimer le patron' }).click()
-  await expect(page.locator('.card')).toHaveCount(2)
-  await page.getByRole('button', { name: 'Annuler' }).click()
   await expect(page.locator('.card')).toHaveCount(3)
+  await page.getByRole('button', { name: 'Annuler' }).click()
+  await expect(page.locator('.card')).toHaveCount(4)
 })
 
 test('étapes : ajout, modification, réordonnancement', async ({ page }) => {
@@ -153,7 +153,7 @@ test('sauvegarde : export puis import', async ({ page }) => {
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Exporter/ }).click()])
   const path = await download.path()
   await page.locator('input[type=file][accept*=json]').setInputFiles(path)
-  await expect(page.locator('.card')).toHaveCount(4)
+  await expect(page.locator('.card')).toHaveCount(6)
 })
 
 test('hors connexion après une première visite', async ({ page, context }) => {
@@ -162,6 +162,6 @@ test('hors connexion après une première visite', async ({ page, context }) => 
   await page.waitForFunction(() => !!navigator.serviceWorker.controller)
   await context.setOffline(true)
   await page.reload()
-  await expect(page.locator('.card')).toHaveCount(2)
+  await expect(page.locator('.card')).toHaveCount(3)
   await context.setOffline(false)
 })

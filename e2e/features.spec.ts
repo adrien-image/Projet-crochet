@@ -14,7 +14,7 @@ test.afterEach(async ({ page }) => {
 
 const home = async (page: Page) => {
   await page.goto('./')
-  await expect(page.locator('.card')).toHaveCount(2)
+  await expect(page.locator('.card')).toHaveCount(3)
 }
 const openMouse = (page: Page) => page.locator('.card', { hasText: 'Souris' }).getByRole('link').click()
 const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('crochet.patterns.v1') ?? '[]'))
@@ -97,7 +97,7 @@ test('partage : lien copié puis ouvert, copie ajoutée sans la progression', as
   await expect(page.locator('.ins-round.done')).toHaveCount(0)
   expect(page.url()).not.toContain('partage')
   await page.goto('./')
-  await expect(page.locator('.card')).toHaveCount(3)
+  await expect(page.locator('.card')).toHaveCount(4)
 })
 
 test('partage : lien abîmé', async ({ page }) => {
@@ -138,7 +138,7 @@ test('rappel de sauvegarde : affiché après une semaine sans export, reporté',
   await banner.getByRole('button', { name: 'Plus tard' }).click()
   await expect(banner).toHaveCount(0)
   await page.reload()
-  await expect(page.locator('.card')).toHaveCount(2)
+  await expect(page.locator('.card')).toHaveCount(3)
   await expect(banner).toHaveCount(0)
 })
 

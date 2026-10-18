@@ -10,7 +10,7 @@ fonctionne hors connexion.
 - **Bibliothèque** : couvertures (photo, ou morceau de tissu généré à la couleur du fil), recherche,
   filtres par progression et par tag, tri
 - **Patron** : instructions interactives (on coche un rang directement dans le texte, le rang en cours
-  est mis en évidence), photo, matériel, fichier joint (PDF, image ou texte avec aperçu), étapes libres
+  est mis en évidence), **plusieurs photos de l'ouvrage** (galerie, visionneuse, choix de la couverture), matériel, fichier joint (PDF, image ou texte avec aperçu), étapes libres
   modifiables et réordonnables, **estimation du fil** nécessaire (au total et par couleur, d'après les
   mailles et la taille du crochet), **chronomètre** de travail (temps total et sur 7 jours)
 - **Compteur** : un rang à la fois, gros anneau de comptage tactile, « Rang terminé — suivant »,
@@ -25,7 +25,9 @@ fonctionne hors connexion.
 - **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande)
 - **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
   ou fichier `.crochet.json`
-- **Sauvegarde** : export / import JSON complet, suppression annulable, patrons d'exemple originaux,
+- **Dupliquer** un patron pour le refaire (de zéro) ou garder une version en cours (avec la progression)
+- **Sauvegarde** : export / import JSON complet (photos comprises), suppression annulable, patrons
+  d'exemple originaux (souris, cœur, abeille rayée multicolore),
   stockage persistant demandé au navigateur, rappel d'export, **synchronisation facultative avec un
   fichier** (Chrome / Edge : un fichier dans un dossier Drive, Dropbox ou iCloud suffit à retrouver ses
   patrons sur un autre ordinateur)

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { CircleCheck, Circle, Paperclip, ListOrdered, ImagePlus, StickyNote, Spool, Timer } from 'lucide-react'
+import { CircleCheck, Circle, Paperclip, ListOrdered, StickyNote, Spool, Timer } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { roundsOf, patternProgress, percent } from '../../domain/progress'
 import { splitSections } from '../../domain/parser'
@@ -10,9 +10,9 @@ import { useTicker } from '../../hooks/useTicker'
 import { t, tn, getLang } from '../../i18n'
 import { ProgressBar } from '../../ui/Progress'
 import { Checklist } from './Checklist'
-import { FabricSwatch } from '../shared/FabricSwatch'
 import { setChecklist, setRoundsDone, type Update } from './actions'
 import { TimerButton } from './PatternView'
+import { PhotoGallery } from './PhotoGallery'
 
 function AttachedFile({ pattern }: { pattern: Pattern }) {
   const url = useAssetUrl(pattern.fileId)
@@ -32,21 +32,6 @@ function AttachedFile({ pattern }: { pattern: Pattern }) {
       {type === 'application/pdf' && <iframe className="file-preview" src={url} title={name} />}
       {type.startsWith('image/') && type !== 'image/svg+xml' && <img className="file-image" src={url} alt={name} />}
     </section>
-  )
-}
-
-function Photo({ pattern, onEdit }: { pattern: Pattern, onEdit: () => void }) {
-  const url = useAssetUrl(pattern.imageId)
-  const src = url || pattern.image || pattern.thumb
-  return (
-    <div className="photo">
-      {src ? <img src={src} alt={pattern.name} /> : (
-        <button type="button" className="photo-empty" onClick={onEdit}>
-          <FabricSwatch pattern={pattern} />
-          <span><ImagePlus size={18} /> {t('Ajouter une photo')}</span>
-        </button>
-      )}
-    </div>
   )
 }
 
@@ -93,10 +78,9 @@ interface Props {
   pattern: Pattern
   update: Update
   onOpenCounter: () => void
-  onEdit: () => void
 }
 
-export function OverviewTab({ pattern, update, onOpenCounter, onEdit }: Props) {
+export function OverviewTab({ pattern, update, onOpenCounter }: Props) {
   const rounds = roundsOf(pattern)
   const { rounds: rp, steps } = patternProgress(pattern)
   const done = new Set(pattern.roundsDone)
@@ -167,7 +151,7 @@ export function OverviewTab({ pattern, update, onOpenCounter, onEdit }: Props) {
       </div>
 
       <aside className="overview-side">
-        <Photo pattern={pattern} onEdit={onEdit} />
+        <PhotoGallery pattern={pattern} update={update} />
         <section className="panel compact">
           <h3>{t('Progression')}</h3>
           {rp.total > 0 && (
