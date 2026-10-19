@@ -26,6 +26,8 @@ export interface Piece {
   color: string
   /** une couleur par exemplaire : « Corps x2 (bleu, blanc) » */
   copyColors?: string[]
+  /** couleur déduite sans indication du patron (2e couleur du fil, couleur par défaut…) */
+  colorGuessed: boolean
 }
 
 export interface CordPiece {
@@ -152,6 +154,7 @@ export function buildPieces(pattern: Pattern): Piece[] {
       flattened: false,
       stuffed: true,
       color: fallback,
+      colorGuessed: false,
     })
   }
   const legend = colorLegend(pattern.text)
@@ -176,9 +179,12 @@ export function buildPieces(pattern: Pattern): Piece[] {
     // piquants, cornes, écailles sans couleur indiquée : la 2e couleur du fil, s'il y en a une
     // (« green and beige » → piquants beige, comme sur la plupart des photos)
     const accent = ACCENT_PIECE.test(p.label) && yarnColors.length > 1 ? yarnColors[1] : null
-    const natural = headingColor(p.sections.join(' '), legend) ?? p.rounds[0].color ?? (changes ? null : findYarnColor(ownYarn)) ?? accent ?? fallback
+    const stated = headingColor(p.sections.join(' '), legend) ?? p.rounds[0].color ?? (changes ? null : findYarnColor(ownYarn))
+    const natural = stated ?? accent ?? fallback
     const override = pattern.pieceColors?.[p.label]
     p.color = override ?? natural
+    // supposée : rien dans le patron ne la donne pour cette pièce (fil à plusieurs couleurs, ou aucune couleur)
+    p.colorGuessed = !override && !stated && (!!accent || yarnColors.length !== 1)
     // couleur choisie à la main : elle remplace aussi la couleur de base écrite dans les rangs
     if (override && override !== natural) p.rounds = p.rounds.map((r) => (r.color === natural ? { ...r, color: null } : r))
     // « Corps x2 (bleu, blanc) » : un exemplaire de chaque couleur (les « Blanc : » des rangs disent

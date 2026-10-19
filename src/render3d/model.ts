@@ -787,6 +787,45 @@ function assemble(
   return { parts, mainLabel: main.piece.label }
 }
 
+/** Point local d'une pièce placée (échelle, rotation d'Euler XYZ comme three.js, puis position). */
+function placePoint(p: Vec3, t: Transform): Vec3 {
+  let [x, y, z] = [p[0] * t.scale[0], p[1] * t.scale[1], p[2] * t.scale[2]]
+  const [a, b, c] = t.rotation
+  ;[x, y] = [x * Math.cos(c) - y * Math.sin(c), x * Math.sin(c) + y * Math.cos(c)]
+  ;[x, z] = [x * Math.cos(b) + z * Math.sin(b), -x * Math.sin(b) + z * Math.cos(b)]
+  ;[y, z] = [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)]
+  return [x + t.position[0], y + t.position[1], z + t.position[2]]
+}
+
+/** Encombrement réel du modèle (boîte englobante), en unités de maille. */
+export function modelExtent(parts: Part[]): { min: Vec3, max: Vec3 } {
+  const min: Vec3 = [Infinity, Infinity, Infinity]
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity]
+  const grow = (q: Vec3, r = 0) => {
+    for (let k = 0; k < 3; k++) {
+      min[k] = Math.min(min[k], q[k] - r)
+      max[k] = Math.max(max[k], q[k] + r)
+    }
+  }
+  for (const p of parts) {
+    if (p.kind === 'cord') p.points.forEach((q) => grow(q, p.radius))
+    else if (p.kind === 'bead') grow(p.position, p.radius)
+    else if (p.kind === 'lathe') {
+      for (let i = 0; i < p.rings.length; i += Math.max(1, Math.floor(p.rings.length / 24))) {
+        const ring = p.rings[i]
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2
+          grow(placePoint([ring.r * Math.cos(a), ring.y, ring.r * Math.sin(a)], p.transform))
+        }
+      }
+    } else {
+      const th = p.puff?.thickness ?? 0
+      for (const r of p.rows) for (const x of [-r.w / 2, r.w / 2]) for (const z of [-th, th]) grow(placePoint([x, r.y, z], p.transform))
+    }
+  }
+  return parts.length ? { min, max } : { min: [0, 0, 0], max: [0, 0, 0] }
+}
+
 function withBounds(parts: Part[], mainLabel?: string, built: { b: Built | null, piece: Piece }[] = []): Model {
   const placeable = built.filter((i) => i.b && i.piece.label !== mainLabel).map((i) => ({ label: i.piece.label, copies: i.piece.copies }))
   const min: Vec3 = [Infinity, Infinity, Infinity]

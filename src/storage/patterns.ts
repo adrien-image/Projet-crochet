@@ -237,7 +237,16 @@ async function withStoredAssets(p: Pattern): Promise<Pattern> {
  * `photos: false` (synchronisation, réécrite à chaque modification) : la galerie et les photos de
  * rang ne gardent que leurs miniatures ; seules la couverture et le fichier joint sont inclus.
  */
-export async function exportBackup(patterns: Pattern[], { photos = true } = {}): Promise<Blob> {
+export async function exportBackup(patterns: Pattern[], { photos = true, cache }: { photos?: boolean, cache?: Map<string, string> } = {}): Promise<Blob> {
+  // fichiers déjà encodés (synchronisation) : leurs identifiants sont tirés du contenu, ils ne changent pas
+  const dataUrl = async (id: string | null | undefined) => {
+    if (!id) return null
+    const known = cache?.get(id)
+    if (known) return known
+    const d = await getAssetDataUrl(id)
+    if (d && cache) cache.set(id, d)
+    return d
+  }
   const full = []
   for (const p of patterns) {
     const { imageId, fileId, thumb: _thumb, ...rest } = p
@@ -261,8 +270,8 @@ export async function exportBackup(patterns: Pattern[], { photos = true } = {}):
       ...(photos ? {} : { thumb: p.thumb }),
       gallery,
       roundNotes,
-      image: p.image || (await getAssetDataUrl(imageId)),
-      fileData: p.fileData || (await getAssetDataUrl(fileId)),
+      image: p.image || (await dataUrl(imageId)),
+      fileData: p.fileData || (await dataUrl(fileId)),
     })
   }
   return new Blob([JSON.stringify({ app: 'mon-crochet', version: 2, patterns: full }, null, 2)], { type: 'application/json' })

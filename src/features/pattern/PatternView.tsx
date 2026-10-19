@@ -1,5 +1,5 @@
-import { useRef } from 'react'
-import { ArrowLeft, Box, Copy, Download, Ellipsis, FileText, Grid3x3, Link2, ListOrdered, Pause, Pencil, Play, Share2, Trash2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ArrowLeft, Box, Copy, Download, Ellipsis, FileText, Grid3x3, Link2, Printer, ListOrdered, Pause, Pencil, Play, Share2, Trash2 } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
 import { formatDuration, startTimer, stopTimer, totalSeconds } from '../../domain/time'
@@ -14,6 +14,7 @@ import { OverviewTab } from './OverviewTab'
 import { CounterTab } from './CounterTab'
 import { RoundsTab } from './RoundsTab'
 import { Model3DTab } from './Model3DTab'
+import { PrintSheet } from './PrintSheet'
 
 const TABS: { id: PatternTab, label: string, icon: typeof FileText }[] = [
   { id: 'patron', label: 'Patron', icon: FileText },
@@ -52,6 +53,7 @@ export function TimerButton({ pattern, update, compact }: { pattern: Pattern, up
 }
 
 export function PatternView(props: Props) {
+  const [printing, setPrinting] = useState(false)
   const { pattern, tab, onTab, update } = props
   const progress = patternProgress(pattern)
   const tabsRef = useRef<HTMLDivElement>(null)
@@ -79,6 +81,7 @@ export function PatternView(props: Props) {
               ...(canShare ? [{ label: t('Partager…'), icon: <Share2 size={16} />, onSelect: () => props.onShare('native') }] : []),
               { label: t('Copier le lien de partage'), icon: <Link2 size={16} />, onSelect: () => props.onShare('link') },
               { label: t('Télécharger le patron (fichier)'), icon: <Download size={16} />, onSelect: () => props.onShare('file') },
+              { label: t('Imprimer le patron (ou PDF)'), icon: <Printer size={16} />, onSelect: () => setPrinting(true) },
               { label: t('Dupliquer le patron…'), icon: <Copy size={16} />, onSelect: props.onDuplicate },
               { label: t('Supprimer le patron'), icon: <Trash2 size={16} />, onSelect: props.onDelete, danger: true },
             ]} />
@@ -120,6 +123,7 @@ export function PatternView(props: Props) {
           </ErrorBoundary>
         </section>
       </main>
+      {printing && <PrintSheet pattern={props.pattern} onDone={() => setPrinting(false)} />}
     </>
   )
 }

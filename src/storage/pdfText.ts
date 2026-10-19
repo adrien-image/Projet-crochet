@@ -9,8 +9,8 @@ export interface TextPiece { s: string, x: number, y: number, w: number, h: numb
 
 /**
  * Reconstitue les lignes d'une page : fragments de même ordonnée, de gauche à droite. Un grand
- * écart horizontal (légende de photo, deuxième colonne) coupe la ligne en deux, pour ne pas
- * coller « 36 – 36 sc » et « After row 35 – » sur la même ligne.
+ * écart horizontal (cellules d'un tableau, légende de photo) devient « | », pour ne pas coller
+ * « 36 – 36 sc » et « After row 35 – » : le parseur relit les cellules.
  */
 export function pageLines(pieces: TextPiece[]): string[] {
   const rows: { y: number, h: number, parts: TextPiece[] }[] = []
@@ -66,7 +66,55 @@ export interface PdfContent {
   title: string | null
   /** photos (JPEG), dans l'ordre des pages : la première sert de couverture */
   photos: Blob[]
+  /** aperçu des premières pages (JPEG, data:), pour vérifier les rangs reconnus */
+  pages: string[]
+  /** texte lu par reconnaissance de caractères (PDF scanné) : à vérifier de près */
+  ocr: boolean
 }
+
+export interface PdfProgress {
+  /** page en cours de lecture par OCR, et nombre de pages à lire */
+  page: number
+  pages: number
+  /** avancement de la page (0 à 1) */
+  progress: number
+}
+
+export interface PdfOptions {
+  /** lecture des PDF scannés (OCR) : avancement */
+  onProgress?: (p: PdfProgress) => void
+  /** lecture des pages scannées ; par défaut Tesseract.js (chargé seulement si besoin) */
+  ocr?: (onProgress: (progress: number) => void) => Promise<import('./ocr').Ocr>
+}
+
+const PREVIEW_PAGES = 12
+const PREVIEW_WIDTH = 720
+/** une page avec moins de caractères que ça est une image (scan, photo) */
+const SCANNED_CHARS = 40
+/** un document avec moins de caractères par page en moyenne est scanné */
+const SCANNED_DOC_CHARS = 150
+const OCR_PAGES = 30
+const OCR_SCALE = 2.5
+
+interface PdfPage {
+  view: number[]
+  getViewport(o: { scale: number }): { width: number, height: number }
+  render(o: { canvas: HTMLCanvasElement, canvasContext: CanvasRenderingContext2D, viewport: unknown }): { promise: Promise<void> }
+}
+
+async function renderPage(page: PdfPage, scale: number): Promise<HTMLCanvasElement> {
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(viewport.width))
+  canvas.height = Math.max(1, Math.round(viewport.height))
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise
+  return canvas
+}
+
+const textChars = (pieces: TextPiece[]) => pieces.reduce((n, p) => n + p.s.trim().length, 0)
 
 const MAX_PHOTOS = 6
 const PHOTO_PAGES = 12
@@ -155,17 +203,45 @@ async function imageToJpeg(img: { width: number, height: number, bitmap?: ImageB
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.88))
 }
 
-export async function extractPdf(data: Blob, fileName?: string | null): Promise<PdfContent> {
+async function openPdf(data: Blob) {
   // version « legacy » : la version moderne exige des fonctions JavaScript toutes récentes
   // (Map.getOrInsertComputed) absentes de nombreux navigateurs encore en service
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const worker = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await data.arrayBuffer()), isEvalSupported: false }).promise
+  return { pdfjs, doc }
+}
+
+/** Aperçu des premières pages d'un PDF (JPEG, data:). */
+export async function pdfPreviews(data: Blob): Promise<string[]> {
+  const { doc } = await openPdf(data)
+  const out: string[] = []
+  try {
+    for (let n = 1; n <= Math.min(doc.numPages, PREVIEW_PAGES); n++) {
+      const page = await doc.getPage(n)
+      out.push(await previewOf(page as unknown as PdfPage))
+      page.cleanup()
+    }
+  } finally {
+    await doc.destroy()
+  }
+  return out
+}
+
+async function previewOf(page: PdfPage): Promise<string> {
+  const canvas = await renderPage(page, PREVIEW_WIDTH / (Math.abs(page.view[2] - page.view[0]) || 595))
+  return canvas.toDataURL('image/jpeg', 0.72)
+}
+
+export async function extractPdf(data: Blob, fileName?: string | null, options: PdfOptions = {}): Promise<PdfContent> {
+  const { pdfjs, doc } = await openPdf(data)
   const pages: TextPiece[][] = []
-  const photos: Blob[] = []
+  const photos: { blob: Blob, page: number, full: boolean }[] = []
+  const previews: string[] = []
   const seen = new Set<string>()
   let metaTitle: string | null = null
+  let ocr = false
   try {
     metaTitle = ((await doc.getMetadata().catch(() => null))?.info as { Title?: string } | undefined)?.Title ?? null
     for (let n = 1; n <= Math.min(doc.numPages, MAX_PAGES); n++) {
@@ -177,6 +253,13 @@ export async function extractPdf(data: Blob, fileName?: string | null): Promise<
         pieces.push({ s: item.str, x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || Math.abs(item.transform[3]) })
       }
       pages.push(pieces)
+      if (n <= PREVIEW_PAGES) {
+        try {
+          previews.push(await previewOf(page as unknown as PdfPage))
+        } catch {
+          // page impossible à dessiner : pas d'aperçu
+        }
+      }
       if (n <= PHOTO_PAGES && photos.length < MAX_PHOTOS) {
         // photos : images affichées en grand (≥ 6 % de la page), pas les logos ni les pictogrammes
         try {
@@ -185,7 +268,7 @@ export async function extractPdf(data: Blob, fileName?: string | null): Promise<
           const pageArea = Math.abs((x1 - x0) * (y1 - y0))
           const stack: Matrix[] = []
           let ctm: Matrix = [1, 0, 0, 1, 0, 0]
-          const found: { name: string, area: number }[] = []
+          const found: { name: string, area: number, full: boolean }[] = []
           for (let i = 0; i < ops.fnArray.length; i++) {
             const fn = ops.fnArray[i]
             const args = ops.argsArray[i]
@@ -198,10 +281,10 @@ export async function extractPdf(data: Blob, fileName?: string | null): Promise<
             } else if (fn === pdfjs.OPS.paintFormXObjectEnd) ctm = stack.pop() ?? ctm
             else if (fn === pdfjs.OPS.paintImageXObject || fn === pdfjs.OPS.paintImageXObjectRepeat) {
               const area = Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
-              if (typeof args?.[0] === 'string' && area >= pageArea * 0.06) found.push({ name: args[0], area })
+              if (typeof args?.[0] === 'string' && area >= pageArea * 0.06) found.push({ name: args[0], area, full: area >= pageArea * 0.8 })
             }
           }
-          for (const { name } of found.sort((a, b) => b.area - a.area)) {
+          for (const { name, full } of found.sort((a, b) => b.area - a.area)) {
             if (photos.length >= MAX_PHOTOS || seen.has(name)) continue
             seen.add(name)
             const store = name.startsWith('g_') ? page.commonObjs : page.objs
@@ -209,7 +292,7 @@ export async function extractPdf(data: Blob, fileName?: string | null): Promise<
             const o = img as { width?: number, height?: number }
             if (!o?.width || !o.height || Math.min(o.width, o.height) < 160 || Math.max(o.width, o.height) / Math.min(o.width, o.height) > 4) continue
             const jpeg = await imageToJpeg(img as Parameters<typeof imageToJpeg>[0]).catch(() => null)
-            if (jpeg) photos.push(jpeg)
+            if (jpeg) photos.push({ blob: jpeg, page: n, full })
           }
         } catch {
           // image illisible (JPEG 2000…) : on garde le texte
@@ -217,11 +300,36 @@ export async function extractPdf(data: Blob, fileName?: string | null): Promise<
       }
       page.cleanup()
     }
+    // PDF scanné (presque pas de texte dans tout le document, pas seulement des pages de photos) :
+    // ses pages sans texte sont lues par OCR
+    const scanned = pages.map((p, i) => (textChars(p) < SCANNED_CHARS ? i : -1)).filter((i) => i >= 0).slice(0, OCR_PAGES)
+    if (scanned.length && textChars(pages.flat()) < SCANNED_DOC_CHARS * pages.length) {
+      let at = 1
+      const report = (progress: number) => options.onProgress?.({ page: at, pages: scanned.length, progress })
+      report(0)
+      const engine = await (options.ocr ?? ((cb) => import('./ocr').then((m) => m.createOcr(cb))))(report)
+      try {
+        for (const [k, i] of scanned.entries()) {
+          at = k + 1
+          report(0)
+          const page = await doc.getPage(i + 1)
+          const canvas = await renderPage(page as unknown as PdfPage, OCR_SCALE)
+          page.cleanup()
+          pages[i] = [...pages[i], ...await engine.read(canvas, OCR_SCALE)]
+          canvas.width = canvas.height = 0
+        }
+        ocr = true
+      } finally {
+        await engine.close()
+      }
+    }
   } finally {
     await doc.destroy()
   }
   // titre lu sur la page 1 sans les en-têtes répétés
-  return { text: piecesToText(pages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos }
+  // un scan pleine page n'est pas une photo de l'ouvrage
+  const kept = photos.filter((p) => !(ocr && p.full && textChars(pages[p.page - 1]) >= SCANNED_CHARS)).map((p) => p.blob)
+  return { text: piecesToText(pages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr }
 }
 
 /** Texte seul d'un PDF. */

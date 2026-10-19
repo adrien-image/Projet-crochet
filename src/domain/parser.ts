@@ -371,10 +371,11 @@ const BARE_ROUND_RE = /^\s*(\d{1,3})(?:\s*(?:[-–—]|to|and|et|e|y|à|au|a)\s*
 const STITCH_HINT_RE = /\b(?:sc|hdc|dc|tr|trc|htr|ss|sl\s*st|slst|ch|inc|dec|invdec|ms|db|dB|br|dbr|mc|ml|aug|dim|pb|mr|magic\s+(?:ring|circle)|anneau)\b/i
 
 interface RoundMatch { word: string, from: number, to: number | null, instruction: string }
+/** `index` : numéro de la ligne dans le texte d'origine (0 = première) */
 type ScannedLine =
-  | { kind: 'round', line: string, round: RoundMatch }
-  | { kind: 'section', line: string, name: string }
-  | { kind: 'text', line: string }
+  | { kind: 'round', line: string, index: number, round: RoundMatch }
+  | { kind: 'section', line: string, index: number, name: string }
+  | { kind: 'text', line: string, index: number }
 
 /** une consigne, pas un titre : « Use color… », « Make a magic ring », « Pique ton crochet… » */
 const INSTRUCTION_LINE_RE = /^\s*(?:use|using|switch|change|crochet|make|join|attach|sew|insert|stuff|fasten|ch\b|chain|start|with|work|leave|cut|note|repeat|continue|pick|turn|place|do\b|don['’]t|close|weave|pull|skip|r[ée]p[ée]te[rz]?|utilise[rz]?|prends?|commence[rz]?|fais|faire|pique|coupe[rz]?|couds?|coudre|rembourre[rz]?|bourre[rz]?|ferme[rz]?|tourne[rz]?|croch[eè]te[rz]?|continue[rz]?|laisse[rz]?|positionne[rz]?|brode[rz]?|colle[rz]?|d[ée]coupe[rz]?|monte[rz]?|travaille[rz]?|attache[rz]?|r[ée]alise[rz]?)\b/i
@@ -419,13 +420,14 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
   const out: ScannedLine[] = []
   // numéro attendu pour le prochain rang sans préfixe de la pièce en cours
   let bareNext: number | null = null
-  for (const raw of (text || '').split(/\r?\n/)) {
+  const rawLines = (text || '').split(/\r?\n/)
+  for (let index = 0; index < rawLines.length; index++) {
     // espaces regroupés : aucune expression ne s'emballe sur « 6 sc =1          x »
-    const line = tableLine(raw.trim()).replace(/\s+/g, ' ')
+    const line = tableLine(rawLines[index].trim()).replace(/\s+/g, ' ')
     if (!line) continue
     const rm = line.match(ROUND_RE)
     if (rm) {
-      out.push({ kind: 'round', line, round: { word: rm[1], from: parseInt(rm[2], 10), to: rm[3] != null ? parseInt(rm[3], 10) : null, instruction: rm[4] } })
+      out.push({ kind: 'round', line, index, round: { word: rm[1], from: parseInt(rm[2], 10), to: rm[3] != null ? parseInt(rm[3], 10) : null, instruction: rm[4] } })
       continue
     }
     const bm = line.match(BARE_ROUND_RE)
@@ -433,7 +435,7 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
       const from = parseInt(bm[1], 10)
       const to = bm[2] != null ? parseInt(bm[2], 10) : null
       if (from === 1 || from === bareNext) {
-        out.push({ kind: 'round', line, round: { word: '', from, to, instruction: bm[3] } })
+        out.push({ kind: 'round', line, index, round: { word: '', from, to, instruction: bm[3] } })
         bareNext = (to ?? from) + 1
         continue
       }
@@ -441,8 +443,8 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
     const name = sectionName(line)
     if (name) {
       bareNext = null
-      out.push({ kind: 'section', line, name })
-    } else out.push({ kind: 'text', line })
+      out.push({ kind: 'section', line, index, name })
+    } else out.push({ kind: 'text', line, index })
   }
   // titres souples : avant un rang 1 (ou une chaînette), parmi les lignes de texte qui le précèdent
   // (« Ears (make 2) / Use color… / Crochet in the round… / Make a magic ring. / R1 : … »), le dernier
@@ -459,7 +461,7 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
         break
       }
     }
-    if (found >= 0) out[found] = { kind: 'section', line: out[found].line, name: looseSectionName(out[found].line)! }
+    if (found >= 0) out[found] = { kind: 'section', line: out[found].line, index: out[found].index, name: looseSectionName(out[found].line)! }
   }
   return out
 }
@@ -486,6 +488,11 @@ export function looksLikeRound(line: string): boolean {
   if (ROUND_RE.test(line)) return true
   const bm = line.match(BARE_ROUND_RE)
   return !!bm && STITCH_HINT_RE.test(bm[3])
+}
+
+/** Plan du texte, ligne par ligne (lignes vides exclues) : rang, titre de pièce ou texte libre. */
+export function outlineText(text: string | null | undefined): { index: number, kind: 'round' | 'section' | 'text', name?: string }[] {
+  return scanLines(text).map((l) => (l.kind === 'section' ? { index: l.index, kind: l.kind, name: l.name } : { index: l.index, kind: l.kind }))
 }
 
 /** Nombre de tailles proposées par le patron : « (80, 88, 96) » → 3. */
@@ -656,6 +663,7 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
         label,
         number: r,
         text: line,
+        line: scanned.index,
         section,
         piece,
         flat,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FileSearch, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
+import { FileSearch, ListChecks, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
@@ -9,6 +9,7 @@ import { Dialog } from '../../ui/Dialog'
 import { photoFields, photosOf, type PhotoRef } from './actions'
 import { PHOTO_LIMIT, uploadPhotos } from './photoUpload'
 import { PhotoImage } from './PhotoGallery'
+import { ImportReview } from './ImportReview'
 
 const MAX_FILE_MB = 25
 
@@ -35,6 +36,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  // aperçu des pages du PDF importé, et vérification ligne par ligne
+  const [previews, setPreviews] = useState<{ pages: string[], ocr: boolean } | null>(null)
+  const [reviewing, setReviewing] = useState(false)
 
   const sizes = useMemo(() => detectSizes(text), [text])
   const effectiveSize = Math.min(size, sizes - 1)
@@ -64,7 +68,10 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
     setError('')
     try {
       const { extractPdf } = await import('../../storage/pdfText')
-      const pdf = await extractPdf(blob, fileName)
+      const pdf = await extractPdf(blob, fileName, {
+        onProgress: ({ page, pages, progress }) => setBusy(t('Lecture du scan : page {p}/{n} ({c} %)', { p: page, n: pages, c: Math.round(progress * 100) })),
+      })
+      setPreviews({ pages: pdf.pages, ocr: pdf.ocr })
       const extracted = pdf.text
       let imported = 0
       if (pdf.photos.length && !photos.length) {
@@ -76,7 +83,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       const title = pdf.title
       if (title) setName((cur) => cur.trim() ? cur : title)
       if (!extracted.trim()) {
-        setInfo(t('Ce PDF ne contient pas de texte (document scanné ?). Recopiez les rangs à la main.'))
+        setInfo(t('Aucun texte lisible dans ce PDF, même scanné. Recopiez les rangs à la main.'))
         return
       }
       setText((cur) => (replace || !cur.trim() ? extracted : `${cur}\n\n${extracted}`))
@@ -86,8 +93,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       if (info.hook) setHook((cur) => cur.trim() ? cur : info.hook!)
       if (info.yarn) setYarn((cur) => cur.trim() ? cur : info.yarn!)
       const n = parsePattern(extracted).length
-      const message = n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
+      const read = n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
         : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).')
+      const message = pdf.ocr ? `${t('PDF scanné : texte lu par reconnaissance de caractères.')} ${read}` : read
       setInfo(imported ? `${message} ${tn(imported, '{n} photo importée.', '{n} photos importées.')}` : message)
     } catch (e) {
       console.warn(e)
@@ -105,6 +113,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
     }
     setError('')
     setInfo('')
+    setPreviews(null)
     setBusy(t('Chargement…'))
     try {
       setFile({ fileId: await putAsset(f), fileName: f.name, fileType: f.type || null, fileData: null })
@@ -121,6 +130,23 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const extractAgain = async () => {
     const blob = file.fileId ? await getAsset(file.fileId) : null
     if (blob) await extractFromPdf(blob, !text.trim(), file.fileName)
+  }
+
+  /** vérification ligne par ligne, avec les pages du PDF joint (dessinées à la demande) */
+  const review = async () => {
+    if (!previews && isPdf && file.fileId) {
+      setBusy(t('Chargement…'))
+      try {
+        const blob = await getAsset(file.fileId)
+        const { pdfPreviews } = await import('../../storage/pdfText')
+        setPreviews({ pages: blob ? await pdfPreviews(blob) : [], ocr: false })
+      } catch {
+        setPreviews({ pages: [], ocr: false })
+      } finally {
+        setBusy(null)
+      }
+    }
+    setReviewing(true)
   }
 
   const submit = () => {
@@ -193,6 +219,11 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
                     {stats.invalid + stats.misfit > 0 ? ` · ${t('{n} compte(s) à vérifier', { n: stats.invalid + stats.misfit })}` : ` · ${t('comptes cohérents ✓')}`}
                   </>}
             </p>
+            {(stats.rounds > 0 || previews) && (
+              <button type="button" className={`btn sm review-open ${stats.invalid + stats.misfit > 0 || previews?.ocr ? 'primary' : 'ghost'}`} onClick={review} disabled={!!busy}>
+                <ListChecks size={15} /> {previews ? t('Vérifier l\'import') : t('Vérifier ligne par ligne')}
+              </button>
+            )}
           </div>
           <div className="field-row">
             <div className="field grow">
@@ -258,7 +289,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
                     <button type="button" className="btn ghost sm" onClick={extractAgain} disabled={!!busy}><FileSearch size={15} /> {t('Extraire le texte')}</button>
                   )}
                   {(file.fileId || file.fileData) && (
-                    <button type="button" className="btn ghost sm danger" onClick={() => setFile({ fileId: null, fileName: null, fileType: null, fileData: null })}><Trash2 size={15} /> {t('Retirer')}</button>
+                    <button type="button" className="btn ghost sm danger" onClick={() => { setFile({ fileId: null, fileName: null, fileType: null, fileData: null }); setPreviews(null) }}><Trash2 size={15} /> {t('Retirer')}</button>
                   )}
                 </div>
               </div>
@@ -268,6 +299,10 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
         {info && <p className="analysis" role="status">{info}</p>}
         {error && <p className="text-warn" role="alert">{error}</p>}
       </div>
+      {reviewing && (
+        <ImportReview text={text} notation={notation} size={effectiveSize} pages={previews?.pages ?? []} ocr={previews?.ocr}
+          onChange={setText} onClose={() => setReviewing(false)} />
+      )}
     </Dialog>
   )
 }

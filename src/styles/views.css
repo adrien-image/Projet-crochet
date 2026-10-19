@@ -465,3 +465,77 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 .choice input { margin-top: 3px; accent-color: var(--accent); }
 .choice.on { border-color: var(--accent); background: var(--accent-soft); }
 .choice.disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Fiche des fils : couleur de chaque pièce */
+.yarn-name .guess { margin-left: 6px; vertical-align: 1px; text-transform: none; }
+.piece-colors { border-top: 1px solid var(--line); padding-top: 10px; }
+.piece-colors summary { cursor: pointer; font-size: 0.86rem; font-weight: 600; color: var(--ink-2); }
+.piece-color { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 0.86rem; }
+.piece-color input[type=color] { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-2); border-radius: 8px; background: none; cursor: pointer; flex: none; }
+.piece-color > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.piece-color .btn { margin-left: auto; }
+
+/* Taille et crochet */
+.size-main { margin: 0; font-size: 1.15rem; font-family: var(--font-serif); }
+.resized { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.resized p { margin: 0; }
+
+/* Fiche imprimable : invisible à l'écran, seule imprimée quand elle est ouverte */
+.print-sheet { display: none; }
+@media print {
+  body.printing-sheet > :not(.print-sheet) { display: none !important; }
+  body.printing-sheet .print-sheet { display: block; color: #1f1a15; font-size: 10.5pt; line-height: 1.4; }
+  .print-sheet h1 { font-size: 20pt; margin: 0 0 4pt; }
+  .print-sheet h2 { font-size: 13pt; margin: 14pt 0 6pt; border-bottom: 1px solid #d8cfc3; padding-bottom: 2pt; }
+  .print-sheet h3 { font-size: 11pt; margin: 10pt 0 3pt; color: #8a4a2a; text-transform: uppercase; letter-spacing: 0.03em; }
+  .ps-head { display: flex; gap: 14pt; align-items: flex-start; }
+  .ps-head > div:first-child { flex: 1; }
+  .ps-photos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4pt; width: 46%; }
+  .ps-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4pt; }
+  .ps-photos img:first-child { grid-column: 1 / -1; aspect-ratio: 4 / 3; }
+  .ps-facts { display: grid; grid-template-columns: auto 1fr; gap: 2pt 10pt; margin: 8pt 0 0; }
+  .ps-facts dt { color: #7a6c5d; }
+  .ps-facts dd { margin: 0; }
+  .ps-muted { color: #7a6c5d; margin: 0 0 4pt; }
+  .ps-table { width: 100%; border-collapse: collapse; }
+  .ps-table td { padding: 3pt 4pt; border-bottom: 1px solid #ece4d9; vertical-align: middle; }
+  .ps-num { text-align: right; white-space: nowrap; }
+  .ps-dot { display: inline-block; width: 10pt; height: 10pt; border-radius: 50%; border: 1px solid #0002; }
+  .ps-checks { list-style: none; padding: 0; margin: 0; }
+  .ps-checks li, .ps-round { display: flex; gap: 6pt; align-items: baseline; break-inside: avoid; }
+  .ps-box { flex: none; width: 9pt; height: 9pt; border: 1px solid #6b5d50; border-radius: 2pt; font-size: 8pt; line-height: 9pt; text-align: center; }
+  .ps-text p { margin: 2pt 0; }
+  .ps-gap { height: 4pt; }
+  .ps-note { color: #8a4a2a; }
+  .ps-charts { break-before: page; }
+  .ps-piece { break-inside: avoid-page; }
+  .ps-chart-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4pt; }
+  .ps-chart-grid .chart-card { break-inside: avoid; box-shadow: none; }
+  .ps-foot { margin-top: 16pt; font-size: 8pt; color: #9a8c7d; text-align: center; }
+}
+
+/* Vérification d'un import : pages du PDF / lignes reconnues */
+.review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; height: 100%; min-height: 0; }
+.review.no-pages { grid-template-columns: 1fr; }
+.review-pages { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.review-pages img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.review-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.review-bar { display: flex; flex-direction: column; gap: 8px; }
+.review-lines { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; flex: 1; }
+.review-line { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 2px 8px; align-items: center; padding: 3px 6px; border-radius: var(--radius-sm); }
+.review-line .input { padding: 5px 8px; font-size: 0.85rem; }
+.review-line.text .input { color: var(--ink-3); }
+.review-line.title .input { font-weight: 700; }
+.review-line.flagged { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.review-tag { font-size: 0.78rem; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-line.round .review-tag { color: var(--ink-2); font-weight: 600; }
+.review-count { font-weight: 400; color: var(--ink-3); }
+.review-issue { grid-column: 2; font-size: 0.78rem; color: var(--warn); display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 760px) {
+  .review { grid-template-columns: 1fr; grid-template-rows: minmax(140px, 32%) minmax(0, 1fr); }
+  .review.no-pages { grid-template-rows: 1fr; }
+  .review-line { grid-template-columns: 1fr; }
+  .review-issue { grid-column: 1; }
+}
+.review-open { align-self: flex-start; margin-top: 6px; }
+.review-line.text .input:not(:focus) { border-color: transparent; background: transparent; }
