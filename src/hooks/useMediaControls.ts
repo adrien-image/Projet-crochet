@@ -42,14 +42,12 @@ export interface MediaControls {
 export function useMediaControls(enabled: boolean, controls: MediaControls): boolean {
   const latest = useRef(controls)
   useEffect(() => { latest.current = controls })
-  const audio = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     if (!enabled || !mediaControlsSupported) return
     const url = silence()
     const a = new Audio(url)
     a.loop = true
-    audio.current = a
     a.play().catch(() => {})
     const session = navigator.mediaSession
     const keepPlaying = (action: () => void) => () => {
@@ -83,7 +81,6 @@ export function useMediaControls(enabled: boolean, controls: MediaControls): boo
       session.metadata = null
       session.playbackState = 'none'
       a.pause()
-      audio.current = null
       URL.revokeObjectURL(url)
     }
   }, [enabled])
