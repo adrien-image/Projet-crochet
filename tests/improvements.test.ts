@@ -6,6 +6,14 @@ import { estimateYarn } from '../src/domain/yarn'
 import { outlineText, parsePattern } from '../src/domain/parser'
 import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
+import { patternLanguage } from '../src/domain/language'
+import { voiceCommands } from '../src/domain/voice'
+import { patternMarkdown } from '../src/features/pattern/markdown'
+import { libraryStats } from '../src/domain/stats'
+import { setRoundsDone } from '../src/features/pattern/actions'
+import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
+import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
+import { lineAt, nextRoundPrefix, suggestions, wordBefore } from '../src/features/pattern/typingHelp'
 
 const ball = 'BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R6 : 18 ms (18)\nR7 : *1 ms, dim* x6 (12)\nR8 : 6 dim (6)'
 
@@ -71,4 +79,132 @@ test('encombrement du modèle 3D : boîte englobante des pièces placées', () =
   const { min, max } = modelExtent(model.parts)
   const size = [0, 1, 2].map((k) => max[k] - min[k])
   expect(size.every((s) => s > 0 && Number.isFinite(s))).toBe(true)
+})
+
+test('OCR : erreurs de lecture courantes corrigées', () => {
+  expect(cleanOcrLine('R3: | aug, 6% ma, I aug, ch l, tourne (%8)')).toBe('R3: 1 aug, 64 ms, 1 aug, ch 1, tourne (48)')
+  expect(cleanOcrLine('4to7—18sc(4rows)')).toBe('4 to 7 – 18 sc (4 rows)')
+  expect(cleanOcrLine('2 —6 inc (12)')).toBe('2 – 6 inc (12)')
+  expect(cleanOcrLine('21-24sc')).toBe('21 – 24 sc')
+  expect(cleanOcrLine('1 – 6 scintoa magicring(6)')).toBe('1 – 6 sc into a magic ring (6)')
+  expect(cleanOcrLine('o R12 : 1 aug, % ms (8)')).toBe('R12 : 1 aug, 4 ms (8)')
+  expect(cleanOcrLine('© RI-6 : 32 ms')).toBe('R1-6 : 32 ms')
+  // le texte courant n'est pas touché
+  expect(cleanOcrLine('I like this pattern, 4-6 hours of work')).toBe('I like this pattern, 4-6 hours of work')
+})
+
+test('OCR : numéros de rang illisibles déduits du rang précédent', () => {
+  const labels = ocrLabels()
+  expect(['Ri : ch 2, 1 aug', ': 2 aug, ch 1', 'RS : 1 aug, 2 ms', 'R4 : 1 aug, 4 ms', '| : 1 aug, 6 ms', 'Coupe le fil :', 'RIO : 1 aug, 8 ms'].map(labels))
+    .toEqual(['R1 : ch 2, 1 aug', 'R2 : 2 aug, ch 1', 'R3 : 1 aug, 2 ms', 'R4 : 1 aug, 4 ms', 'R5 : 1 aug, 6 ms', 'Coupe le fil :', 'R6 : 1 aug, 8 ms'])
+})
+
+test('OCR : un numéro illisible après les consignes d\'une nouvelle pièce repart à 1', () => {
+  const labels = ocrLabels()
+  expect(['R23: 2 sc, 1 dec (24)', 'R24: 24 sc', 'Fasten off.', 'Chest', 'Use white yarn.', 'Rl: 4 sc', 'R2: 4 sc, ch 3'].map(labels))
+    .toEqual(['R23: 2 sc, 1 dec (24)', 'R24: 24 sc', 'Fasten off.', 'Chest', 'Use white yarn.', 'R1 : 4 sc', 'R2: 4 sc, ch 3'])
+})
+
+test('OCR : des mots espacés ne sont pas pris pour deux colonnes', () => {
+  // une seule colonne de rangs, écrite large (mots isolés, espaces de 7 pt pour une police de 12)
+  const rows = Array.from({ length: 6 }, (_, i) => [`R${i + 1}:`, '1', 'aug,', `${2 * i}`, 'ms'].map((s, k) => ({ s, x: 50 + k * 41, y: 700 - i * 20, w: 34, h: 12 })))
+  const pieces: TextPiece[] = rows.flat()
+  // aucun rang coupé en deux
+  expect(readingBlocks(pieces, 0, true).every((b) => b.length % 5 === 0)).toBe(true)
+  expect(piecesToText([pieces], new Set([0])).split('\n')[0]).toBe('R1: 1 aug, 0 ms')
+})
+
+test('langue d\'un patron d\'après son vocabulaire (OCR)', () => {
+  expect(patternLanguage('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)')).toBe('fra')
+  expect(patternLanguage('HEAD\nRnd 1: 6 sc in a magic ring (6)\nRnd 2: inc in each stitch (12)\nRnd 3: (sc, inc) x6 (18)')).toBe('eng')
+  expect(patternLanguage('CABEZA\nVuelta 1: 6 pb en un anillo mágico (6)\nVuelta 2: 6 aum (12)\nVuelta 3: (1 pb, aum) x6 (18)')).toBe('spa')
+  expect(patternLanguage('KOPF\nRunde 1: 6 fM in einen Fadenring (6)\nRunde 2: jede M verdoppeln (12)\nRunde 3: *1 fM, 1 zun* 6 mal (18)')).toBe('deu')
+  expect(patternLanguage('TESTA\nGiro 1: 6 mb in un anello magico (6)\nGiro 2: 6 aum (12)\nGiro 3: (1 mb, aum) x6 (18)')).toBe('ita')
+  expect(patternLanguage('CABEÇA\nCarreira 1: 6 pbx no anel mágico (6)\nCarreira 2: 6 aum (12)\nCarreira 3: (1 pbx, aum) 6 vezes (18)')).toBe('por')
+  expect(patternLanguage('HOOFD\nToer 1: 6 vaste in een magische ring (6)\nToer 2: 6 meerd (12)\nToer 3: (1 vaste, meerd) 6 keer (18)')).toBe('nld')
+  expect(patternLanguage('Bonjour')).toBeNull()
+})
+
+test('vérification : une ligne retrouvée sur sa page, même nettoyée', () => {
+  const pieces: TextPiece[] = [
+    { s: 'BODY', x: 50, y: 760, w: 40, h: 12 },
+    { s: 'R1: 6 sc in a magic ring (6)', x: 50, y: 740, w: 200, h: 12 },
+    { s: 'R2: 6 inc (12)', x: 50, y: 720, w: 100, h: 12 },
+    { s: 'HEAD', x: 50, y: 400, w: 40, h: 12 },
+    { s: 'R1: 6 sc in a magic ring (6)', x: 50, y: 380, w: 200, h: 12 },
+  ]
+  const layout = [pageLayout(pieces, [0, 0, 595, 842])]
+  const second = findOnPages('R1: 6 sc in a magic ring (6)', layout, 1)!
+  expect(second.page).toBe(0)
+  expect(second.box[1]).toBeCloseTo((842 - 392) / 842, 2)
+  // ligne corrigée à la main : la plus ressemblante
+  expect(findOnPages('R2: 6 inc (12) — stuff', layout)?.box[1]).toBeCloseTo((842 - 732) / 842, 2)
+  expect(findOnPages('Something else entirely', layout)).toBeNull()
+  expect(occurrenceOf(['a', 'R1: x', 'b', 'R1: x'], 3)).toBe(1)
+})
+
+test('commandes vocales du compteur, en français et en anglais', () => {
+  expect(voiceCommands('maille')).toEqual(['add'])
+  expect(voiceCommands('plus plus plus')).toEqual(['add', 'add', 'add'])
+  expect(voiceCommands('moins une')).toEqual(['remove'])
+  expect(voiceCommands('rang terminé')).toEqual(['finish'])
+  expect(voiceCommands('maille puis rang suivant')).toEqual(['add', 'finish'])
+  expect(voiceCommands('remettre à zéro')).toEqual(['reset'])
+  expect(voiceCommands('stitch stitch next row')).toEqual(['add', 'add', 'finish'])
+  expect(voiceCommands('undo')).toEqual(['remove'])
+  expect(voiceCommands('il fait beau')).toEqual([])
+})
+
+test('aide à la saisie : mot en cours, abréviations, rang suivant', () => {
+  expect(wordBefore('R1 : 6 ms, au', 13)).toEqual({ start: 11, word: 'au' })
+  expect(suggestions('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : 1 ms, aug', 'a', 'eng')).toEqual(['aug', 'anneau magique'])
+  expect(suggestions('', 'ma', 'eng')).toEqual(['magic ring'])
+  expect(suggestions('', 'sc', 'eng')).toEqual([])
+  const text = 'TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2-R3 : 6 aug (12)\n'
+  expect(nextRoundPrefix(text, 3, parsePattern(text))).toBe('R4 : ')
+  const en = 'Head\nRnd 1: 6 sc in a magic ring (6)\nRnd 2: 6 inc (12)\n'
+  expect(nextRoundPrefix(en, 3, parsePattern(en))).toBe('Rnd 3: ')
+  const bare = 'Body\n1 – 6 sc into a magic ring (6)\n2 – 6 inc (12)\n'
+  expect(nextRoundPrefix(bare, 3, parsePattern(bare))).toBe('3 – ')
+  expect(nextRoundPrefix('Rien', 0, [])).toBeNull()
+  expect(lineAt('a\nb\nc', 3)).toBe(1)
+})
+
+test('export Markdown : titre, fils, étapes, rangs cochés, notes', () => {
+  const p = normalizePattern({ name: 'Balle *rayée*', hook: '3 mm', yarn: 'coton rose', tags: ['cadeau'], text: ball, checklist: [{ id: 'a', text: 'Broder les yeux', done: true }] })
+  const rounds = parsePattern(p.text)
+  const md = patternMarkdown({ ...p, roundsDone: [rounds[0].key], roundNotes: { [rounds[1].key]: { text: 'serrer', photoId: null, photoThumb: null } } })
+  expect(md).toMatch(/^# Balle \\\*rayée\\\*\n/)
+  expect(md).toContain('- **Crochet** : 3 mm')
+  expect(md).toContain('## Fils à prévoir')
+  expect(md).toContain('- [x] Broder les yeux')
+  expect(md).toContain('### BALLE')
+  expect(md).toContain('- [x] R1 : 6 ms dans un anneau magique (6)')
+  expect(md).toContain('- [ ] R2 : 6 aug (12) — *serrer*')
+  expect(md).toContain('- [ ] R4-R6 : 18 ms (18)')
+})
+
+test('statistiques : temps par semaine, rythme, fil utilisé au fil du temps', () => {
+  const now = Date.parse('2026-10-15T12:00:00')
+  const base = normalizePattern({ name: 'Balle', hook: '3 mm', text: ball })
+  const rounds = parsePattern(base.text)
+  let p = { ...base, timeSpent: 7200, sessions: [{ start: '2026-10-13T10:00:00', seconds: 3600 }, { start: '2026-09-01T10:00:00', seconds: 3600 }] }
+  p = setRoundsDone(p, rounds.slice(0, 3).map((r) => r.key), true, Date.parse('2026-10-13T11:00:00'))
+  p = setRoundsDone(p, [rounds[3].key], true, Date.parse('2026-10-06T11:00:00'))
+  const untouched = normalizePattern({ name: 'Pas commencé', text: ball })
+  const s = libraryStats([untouched, p], now)
+  expect(s.weeks).toHaveLength(12)
+  expect(s.weeks[11].week).toBe('2026-10-12')
+  expect(s.weeks[11].seconds).toBe(3600)
+  expect(s.weeks[11].rounds).toBe(3)
+  expect(s.weeks[10].rounds).toBe(1)
+  expect(s.weeks[11].meters).toBeGreaterThan(0)
+  expect(s.roundsDone).toBe(4)
+  expect(s.inProgress).toBe(1)
+  expect(s.patterns[0].name).toBe('Balle')
+  expect(s.patterns[0].perHour).toBe(2)
+  expect(s.metersUsed).toBeCloseTo(s.patterns[0].metersUsed)
+  expect(s.patterns[0].metersUsed).toBeLessThan(s.patterns[0].meters)
+  // décocher un rang efface sa date
+  expect(setRoundsDone(p, [rounds[0].key], false).roundsDoneAt?.[rounds[0].key]).toBeUndefined()
 })

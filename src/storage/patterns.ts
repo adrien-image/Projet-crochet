@@ -42,6 +42,8 @@ export function normalizePattern(p: any): Pattern {
     text: str(p.text),
     checklist: [],
     roundsDone: Array.isArray(p.roundsDone) ? p.roundsDone.filter((k: unknown) => typeof k === 'string') : [],
+    roundsDoneAt: Object.fromEntries(Object.entries(p.roundsDoneAt && typeof p.roundsDoneAt === 'object' ? p.roundsDoneAt : {})
+      .filter(([, v]) => typeof v === 'string' && !Number.isNaN(Date.parse(v)))) as Record<string, string>,
     stitchCounter: Number.isInteger(p.stitchCounter) && p.stitchCounter > 0 ? p.stitchCounter : 0,
     pieceColors: {},
     roundNotes: {},
@@ -169,6 +171,7 @@ export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string
   copy.checklist = copy.checklist.map((i) => ({ ...i, id: uid(), done: keepProgress && i.done }))
   if (!keepProgress) {
     copy.roundsDone = []
+    copy.roundsDoneAt = {}
     copy.stitchCounter = 0
     copy.timeSpent = 0
     copy.sessions = []

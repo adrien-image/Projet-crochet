@@ -71,6 +71,7 @@ export async function decodeShare(code: string): Promise<Pattern> {
   return normalizePattern(picked)
 }
 
-export function shareUrl(code: string): string {
-  return `${window.location.origin}${window.location.pathname}#/partage/${code}`
+/** Lien de partage ; `print` : il ouvre directement la fiche imprimable. */
+export function shareUrl(code: string, print = false): string {
+  return `${window.location.origin}${window.location.pathname}#/partage/${code}${print ? '/imprimer' : ''}`
 }

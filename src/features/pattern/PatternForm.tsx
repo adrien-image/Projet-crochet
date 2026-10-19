@@ -1,15 +1,18 @@
-import { useMemo, useState } from 'react'
-import { FileSearch, ListChecks, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { FileSearch, ListChecks, Paperclip, Plus, ScanText, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
+import type { PageLayout } from '../../storage/pdfText'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
 import { guessPatternInfo } from '../../domain/patternInfo'
-import { t, tn } from '../../i18n'
+import { getLang, t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { photoFields, photosOf, type PhotoRef } from './actions'
 import { PHOTO_LIMIT, uploadPhotos } from './photoUpload'
 import { PhotoImage } from './PhotoGallery'
 import { ImportReview } from './ImportReview'
+import { TextAssist } from './TextAssist'
+import { firstSuggestion } from './typingHelp'
 
 const MAX_FILE_MB = 25
 
@@ -37,12 +40,25 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   // aperçu des pages du PDF importé, et vérification ligne par ligne
-  const [previews, setPreviews] = useState<{ pages: string[], ocr: boolean } | null>(null)
+  const [previews, setPreviews] = useState<{ pages: string[], ocr: boolean, layout: PageLayout[] } | null>(null)
   const [reviewing, setReviewing] = useState(false)
 
   const sizes = useMemo(() => detectSizes(text), [text])
   const effectiveSize = Math.min(size, sizes - 1)
-  const stats = useMemo(() => patternStats(parsePattern(text, { notation, size: effectiveSize })), [text, notation, effectiveSize])
+  const parsed = useMemo(() => parsePattern(text, { notation, size: effectiveSize }), [text, notation, effectiveSize])
+  const stats = patternStats(parsed)
+  // aide à la saisie : position du curseur dans le texte du patron
+  const area = useRef<HTMLTextAreaElement>(null)
+  const [caret, setCaret] = useState<number | null>(null)
+  const insertText = (from: number, to: number, insert: string) => {
+    setText((cur) => cur.slice(0, from) + insert + cur.slice(to))
+    const at = from + insert.length
+    setCaret(at)
+    requestAnimationFrame(() => {
+      area.current?.focus()
+      area.current?.setSelectionRange(at, at)
+    })
+  }
   const isPdf = file.fileType === 'application/pdf' || /\.pdf$/i.test(file.fileName ?? '')
 
   const room = PHOTO_LIMIT - photos.length
@@ -63,15 +79,16 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
    * Remplit le patron avec le contenu du PDF (pdf.js n'est chargé qu'à ce moment-là) : texte, nom,
    * crochet et fil pour les champs encore vides, et ses photos si l'ouvrage n'en a pas encore.
    */
-  const extractFromPdf = async (blob: Blob, replace: boolean, fileName?: string | null) => {
+  const extractFromPdf = async (blob: Blob, replace: boolean, fileName?: string | null, ocrOnly = false) => {
     setBusy(t('Lecture du PDF…'))
     setError('')
     try {
       const { extractPdf } = await import('../../storage/pdfText')
       const pdf = await extractPdf(blob, fileName, {
+        ocrOnly,
         onProgress: ({ page, pages, progress }) => setBusy(t('Lecture du scan : page {p}/{n} ({c} %)', { p: page, n: pages, c: Math.round(progress * 100) })),
       })
-      setPreviews({ pages: pdf.pages, ocr: pdf.ocr })
+      setPreviews({ pages: pdf.pages, ocr: pdf.ocr, layout: pdf.layout })
       const extracted = pdf.text
       let imported = 0
       if (pdf.photos.length && !photos.length) {
@@ -95,7 +112,8 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       const n = parsePattern(extracted).length
       const read = n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
         : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).')
-      const message = pdf.ocr ? `${t('PDF scanné : texte lu par reconnaissance de caractères.')} ${read}` : read
+      const message = !pdf.ocr ? read
+        : `${ocrOnly ? t('Texte lu par reconnaissance de caractères.') : t('PDF scanné : texte lu par reconnaissance de caractères.')} ${read}`
       setInfo(imported ? `${message} ${tn(imported, '{n} photo importée.', '{n} photos importées.')}` : message)
     } catch (e) {
       console.warn(e)
@@ -127,9 +145,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
     }
   }
 
-  const extractAgain = async () => {
+  const extractAgain = async (ocrOnly = false) => {
     const blob = file.fileId ? await getAsset(file.fileId) : null
-    if (blob) await extractFromPdf(blob, !text.trim(), file.fileName)
+    if (blob) await extractFromPdf(blob, !text.trim(), file.fileName, ocrOnly)
   }
 
   /** vérification ligne par ligne, avec les pages du PDF joint (dessinées à la demande) */
@@ -139,9 +157,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       try {
         const blob = await getAsset(file.fileId)
         const { pdfPreviews } = await import('../../storage/pdfText')
-        setPreviews({ pages: blob ? await pdfPreviews(blob) : [], ocr: false })
+        setPreviews({ ...(blob ? await pdfPreviews(blob) : { pages: [], layout: [] }), ocr: false })
       } catch {
-        setPreviews({ pages: [], ocr: false })
+        setPreviews({ pages: [], layout: [], ocr: false })
       } finally {
         setBusy(null)
       }
@@ -209,8 +227,19 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
           <legend>{t('Instructions')}</legend>
           <div className="field">
             <label htmlFor="f-text">{t('Texte du patron')}</label>
-            <textarea id="f-text" className="input mono" value={text} onChange={(e) => setText(e.target.value)} rows={10}
+            <textarea id="f-text" ref={area} className="input mono" value={text} rows={10}
+              onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onBlur={() => setCaret(null)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Tab' || e.shiftKey || caret == null) return
+                const s = firstSuggestion(text, caret, getLang() === 'en' ? 'eng' : 'fra')
+                if (!s) return
+                e.preventDefault()
+                insertText(s.from, caret, s.insert)
+              }}
               placeholder={t('Un rang par ligne, pièces en MAJUSCULES :\nTÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)')} />
+            {caret != null && <TextAssist text={text} caret={caret} rounds={parsed} onInsert={insertText} />}
             <p className={`analysis ${stats.rounds === 0 ? '' : stats.invalid + stats.misfit > 0 ? 'warn' : 'ok'}`} aria-live="polite">
               {stats.rounds === 0
                 ? t('Aucun rang reconnu pour l\'instant — format « R1 : 6 ms (6) », un rang par ligne. Vous pouvez aussi joindre le PDF du patron.')
@@ -286,7 +315,13 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
                     <input type="file" accept=".pdf,image/*,.txt,text/plain" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
                   </label>
                   {isPdf && file.fileId && (
-                    <button type="button" className="btn ghost sm" onClick={extractAgain} disabled={!!busy}><FileSearch size={15} /> {t('Extraire le texte')}</button>
+                    <button type="button" className="btn ghost sm" onClick={() => extractAgain()} disabled={!!busy}><FileSearch size={15} /> {t('Extraire le texte')}</button>
+                  )}
+                  {isPdf && file.fileId && (
+                    <button type="button" className="btn ghost sm" onClick={() => extractAgain(true)} disabled={!!busy}
+                      title={t('Pour un PDF dont le texte extrait est illisible : chaque page est lue comme une image.')}>
+                      <ScanText size={15} /> {t('Lire par OCR')}
+                    </button>
                   )}
                   {(file.fileId || file.fileData) && (
                     <button type="button" className="btn ghost sm danger" onClick={() => { setFile({ fileId: null, fileName: null, fileType: null, fileData: null }); setPreviews(null) }}><Trash2 size={15} /> {t('Retirer')}</button>
@@ -300,7 +335,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
         {error && <p className="text-warn" role="alert">{error}</p>}
       </div>
       {reviewing && (
-        <ImportReview text={text} notation={notation} size={effectiveSize} pages={previews?.pages ?? []} ocr={previews?.ocr}
+        <ImportReview text={text} notation={notation} size={effectiveSize} pages={previews?.pages ?? []} layout={previews?.layout ?? []} ocr={previews?.ocr}
           onChange={setText} onClose={() => setReviewing(false)} />
       )}
     </Dialog>

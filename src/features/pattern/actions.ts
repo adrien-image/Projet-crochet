@@ -4,13 +4,20 @@ import { MAX_GALLERY } from '../../storage/patterns'
 
 export type Update = (fn: (p: Pattern) => Pattern) => void
 
-export function setRoundsDone(p: Pattern, keys: string[], done: boolean): Pattern {
+export function setRoundsDone(p: Pattern, keys: string[], done: boolean, now = Date.now()): Pattern {
   const set = new Set(p.roundsDone)
+  const at = { ...p.roundsDoneAt }
+  const when = new Date(now).toISOString()
   for (const k of keys) {
-    if (done) set.add(k)
-    else set.delete(k)
+    if (done) {
+      if (!set.has(k)) at[k] = when
+      set.add(k)
+    } else {
+      set.delete(k)
+      delete at[k]
+    }
   }
-  return { ...p, roundsDone: [...set] }
+  return { ...p, roundsDone: [...set], roundsDoneAt: at }
 }
 
 export function setChecklist(p: Pattern, fn: (l: ChecklistItem[]) => ChecklistItem[]): Pattern {

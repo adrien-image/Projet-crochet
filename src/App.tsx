@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Printer } from 'lucide-react'
 import type { Pattern } from './domain/types'
 import { parsePattern, parseOptions, remapRoundKeys } from './domain/parser'
 import { stopTimer } from './domain/time'
@@ -18,15 +19,22 @@ import { ToastView } from './ui/Toast'
 import { Dialog } from './ui/Dialog'
 import { LibraryView } from './features/library/LibraryView'
 import { StorageDialog } from './features/library/StorageDialog'
+import { StatsDialog } from './features/library/StatsDialog'
 import { PatternView, type ShareKind } from './features/pattern/PatternView'
 import { PatternForm, type PatternDraft } from './features/pattern/PatternForm'
 import { DuplicateDialog } from './features/pattern/DuplicateDialog'
+import { PrintSheet } from './features/pattern/PrintSheet'
+import { patternMarkdown } from './features/pattern/markdown'
 
 const fileSlug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'patron'
 /** délai pendant lequel une suppression reste annulable (durée du message) */
 const UNDO_WINDOW = 8000
 
-const shareCodeFromHash = () => window.location.hash.match(/^#\/partage\/([A-Za-z0-9_-]+)$/)?.[1] ?? null
+// #/partage/<code> : ajouter le patron reçu ; #/partage/<code>/imprimer : l'imprimer directement
+const shareFromHash = () => {
+  const m = window.location.hash.match(/^#\/partage\/([A-Za-z0-9_-]+)(\/imprimer)?$/)
+  return m ? { code: m[1], print: !!m[2] } : null
+}
 
 export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
   const { toast, show: notify, hide: hideToast } = useToast()
@@ -40,7 +48,9 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
   const [route, navigate] = useHashRoute()
   const [editing, setEditing] = useState<Pattern | 'new' | null>(null)
   const [storageOpen, setStorageOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [incoming, setIncoming] = useState<Pattern | null>(null)
+  const [printingIncoming, setPrintingIncoming] = useState(false)
   const [duplicating, setDuplicating] = useState<Pattern | null>(null)
 
   const open = useMemo(() => patterns.find((p) => p.id === route.patternId) ?? null, [patterns, route.patternId])
@@ -56,10 +66,13 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
   // lien de partage reçu : #/partage/<code>
   useEffect(() => {
     const check = () => {
-      const code = shareCodeFromHash()
-      if (!code) return
-      decodeShare(code)
-        .then(setIncoming)
+      const share = shareFromHash()
+      if (!share) return
+      decodeShare(share.code)
+        .then((p) => {
+          setIncoming(p)
+          setPrintingIncoming(share.print)
+        })
         .catch(() => notify(t('Ce lien de partage est invalide ou incomplet.'), { error: true }))
         .finally(() => window.history.replaceState(null, '', window.location.pathname + window.location.search))
     }
@@ -87,6 +100,12 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
             if (mapped) notes[mapped] = note
           }
           next.roundNotes = notes
+          const at: Record<string, string> = {}
+          for (const [k, when] of Object.entries(p.roundsDoneAt ?? {})) {
+            const [mapped] = remapRoundKeys(before, after, [k])
+            if (mapped) at[mapped] = when
+          }
+          next.roundsDoneAt = at
         }
         return next
       })
@@ -188,13 +207,19 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
         downloadBlob(await exportBackup([open]), `${fileSlug(open.name)}.crochet.json`)
         return
       }
-      const url = shareUrl(await encodeShare(open))
+      if (kind === 'markdown') {
+        downloadBlob(new Blob([patternMarkdown(open)], { type: 'text/markdown;charset=utf-8' }), `${fileSlug(open.name)}.md`)
+        return
+      }
+      const url = shareUrl(await encodeShare(open), kind === 'print')
       if (kind === 'native' && navigator.share) {
         await navigator.share({ title: open.name, text: t('Patron de crochet : {name}', { name: open.name }), url })
         return
       }
       await navigator.clipboard.writeText(url)
-      notify(t('Lien copié. La personne qui l\'ouvre recevra une copie du patron (sans votre progression ni vos fichiers).'))
+      notify(kind === 'print'
+        ? t('Lien copié. Il ouvre la fiche imprimable du patron, sans rien installer ni ajouter.')
+        : t('Lien copié. La personne qui l\'ouvre recevra une copie du patron (sans votre progression ni vos fichiers).'))
     } catch (e) {
       if ((e as DOMException)?.name !== 'AbortError') notify(t('Partage impossible sur ce navigateur.'), { error: true })
     }
@@ -254,6 +279,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
           onDuplicate={(id) => setDuplicating(patterns.find((p) => p.id === id) ?? null)}
           onExport={onExport} onImport={onImport} onRestoreSamples={restoreSamples} onLang={changeLang}
           onStorage={() => setStorageOpen(true)}
+          onStats={() => setStatsOpen(true)}
           reminder={{
             show: reminder,
             lastExportAt: settings.lastExportAt,
@@ -265,12 +291,14 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
         <PatternForm initial={editing === 'new' ? null : editing} onSave={savePattern} onCancel={() => setEditing(null)} />
       )}
       {duplicating && <DuplicateDialog pattern={duplicating} onDuplicate={duplicate} onCancel={() => setDuplicating(null)} />}
+      {statsOpen && <StatsDialog patterns={patterns} onClose={() => setStatsOpen(false)} />}
       {storageOpen && <StorageDialog onClose={() => setStorageOpen(false)} onExport={onExport} lastExportAt={settings.lastExportAt} />}
       {incoming && (
         <Dialog open title={t('Patron partagé')} size="sm" onClose={() => setIncoming(null)}
           footer={(
             <>
               <button type="button" className="btn ghost" onClick={() => setIncoming(null)}>{t('Ignorer')}</button>
+              <button type="button" className="btn secondary" onClick={() => setPrintingIncoming(true)}><Printer size={16} /> {t('Imprimer')}</button>
               <button type="button" className="btn primary" onClick={() => {
                 protect()
                 addPatterns([incoming])
@@ -285,6 +313,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
           <p className="muted sm">{tn(parsePattern(incoming.text, parseOptions(incoming)).length, '{n} rang', '{n} rangs')}</p>
         </Dialog>
       )}
+      {incoming && printingIncoming && <PrintSheet pattern={incoming} onDone={() => setPrintingIncoming(false)} />}
       <ToastView toast={toast} onHide={hideToast} />
     </div>
   )

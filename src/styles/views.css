@@ -518,7 +518,12 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 .review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; height: 100%; min-height: 0; }
 .review.no-pages { grid-template-columns: 1fr; }
 .review-pages { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
-.review-pages img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.review-page { position: relative; }
+.review-pages img { width: 100%; display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.review-mark {
+  position: absolute; margin: -3px; padding: 3px; box-sizing: content-box; border-radius: 4px; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); outline: 2px solid var(--accent);
+}
 .review-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .review-bar { display: flex; flex-direction: column; gap: 8px; }
 .review-lines { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; flex: 1; }
@@ -539,3 +544,47 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 }
 .review-open { align-self: flex-start; margin-top: 6px; }
 .review-line.text .input:not(:focus) { border-color: transparent; background: transparent; }
+
+/* Compteur mains libres */
+.hands-free { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.hands-free h3 { margin: 0; font-size: 0.95rem; }
+.hands-free .switch span svg { vertical-align: -2px; }
+
+/* Aide à la saisie du patron */
+.text-assist { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.82rem; padding: 6px 2px 2px; }
+.ta-line { color: var(--ink-3); }
+.ta-line.ok strong { color: var(--success); }
+.ta-line.warn { color: var(--warn); }
+.ta-words { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.ta-words .chip { cursor: pointer; font-family: var(--font-mono, ui-monospace, monospace); }
+.text-assist .btn { margin-left: auto; }
+
+/* Statistiques */
+.stats { display: flex; flex-direction: column; gap: 20px; }
+.stats h3 { margin: 0; font-size: 1rem; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.stat-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--line); }
+.stat-tile span { font-size: 0.8rem; color: var(--ink-3); }
+.stat-tile strong { font-size: 1.25rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-tile small { font-size: 0.75rem; font-weight: 500; color: var(--ink-3); }
+.stats-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.week-chart { position: relative; }
+.week-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.wc-grid { stroke: var(--line); stroke-width: 1; }
+.wc-base { stroke: var(--line-2); stroke-width: 1; }
+.wc-tick { fill: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.wc-hit { fill: transparent; }
+.wc-bar { fill: var(--chart-mark); }
+.wc-bar.active { fill: var(--accent-strong); }
+.week-chart g:focus { outline: none; }
+.week-chart g:focus-visible .wc-hit { stroke: var(--accent); stroke-width: 2; }
+.wc-tip {
+  position: absolute; transform: translate(-50%, calc(-100% - 8px)); pointer-events: none; white-space: nowrap;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; font-size: 0.8rem;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--radius-sm); box-shadow: var(--shadow-2);
+}
+.stats-table summary { cursor: pointer; font-size: 0.85rem; color: var(--ink-2); margin-top: 6px; }
+.stats table { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.stats th { color: var(--ink-3); font-weight: 600; }
+.stats-scroll { overflow-x: auto; }

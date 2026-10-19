@@ -100,6 +100,33 @@ test('partage : lien copié puis ouvert, copie ajoutée sans la progression', as
   await expect(page.locator('.card')).toHaveCount(4)
 })
 
+test('partage : lien imprimable et export Markdown', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(() => { window.print = () => { (window as unknown as { printed: number }).printed = ((window as unknown as { printed?: number }).printed ?? 0) + 1 } })
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('button', { name: "Plus d'actions" }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Exporter en texte (Markdown)' }).click()])
+  expect(download.suggestedFilename()).toMatch(/\.md$/)
+  const md = (await import('node:fs')).readFileSync(await download.path(), 'utf8')
+  expect(md).toMatch(/^# Souris/)
+  expect(md).toContain('- [x] ')
+
+  await page.getByRole('button', { name: "Plus d'actions" }).click()
+  await page.getByRole('menuitem', { name: 'Copier un lien imprimable' }).click()
+  await expect(page.locator('.toast')).toContainText('fiche imprimable')
+  const url = await page.evaluate(() => navigator.clipboard.readText())
+  expect(url).toMatch(/#\/partage\/[A-Za-z0-9_-]+\/imprimer$/)
+  const other = await context.newPage()
+  await other.addInitScript(() => { window.print = () => { (window as unknown as { printed: number }).printed = 1 } })
+  await other.goto(url)
+  await other.waitForFunction(() => (window as unknown as { printed?: number }).printed === 1)
+  await expect(other.locator('.print-sheet h1')).toHaveText(/Souris/)
+  // rien n'est ajouté sans le demander ; le dialogue propose encore d'ajouter ou d'imprimer
+  await expect(other.getByRole('dialog', { name: 'Patron partagé' }).getByRole('button', { name: 'Imprimer' })).toBeVisible()
+  expect(await other.evaluate(() => JSON.parse(localStorage.getItem('crochet.patterns.v1') ?? '[]').length)).toBe(3)
+})
+
 test('partage : lien abîmé', async ({ page }) => {
   await page.goto('./#/partage/zpasunvraicode')
   await expect(page.locator('.toast')).toContainText('invalide')
@@ -206,6 +233,7 @@ test('PDF : le texte d\'un PDF joint remplit le patron', async ({ page }) => {
   await expect(dialog.getByLabel('Texte du patron')).toHaveValue(/R2 : aug dans chaque maille \(12\)/)
   await expect(dialog.getByLabel('Texte du patron')).not.toHaveValue(/^3$/m)
   await expect(dialog.getByRole('button', { name: 'Extraire le texte' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Lire par OCR' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.locator('.ins-round')).toHaveCount(3)
 })
@@ -224,6 +252,9 @@ test('PDF : vérification de l\'import, pages à côté des rangs, ligne corrig�
   const review = page.getByRole('dialog', { name: 'Vérifier l\'import' })
   await expect(review.getByRole('img', { name: 'Page 1' })).toBeVisible()
   await expect(review.locator('.review-line.round')).toHaveCount(4)
+  // la ligne en cours est surlignée sur la page du PDF
+  await review.locator('.review-line.round').nth(2).locator('input').focus()
+  await expect(review.locator('.review-mark')).toBeVisible()
   const flagged = review.locator('.review-line.flagged')
   await expect(flagged).toHaveCount(1)
   await expect(flagged).toContainText('18 mailles calculées, 20 annoncées')
@@ -303,6 +334,115 @@ test('PDF scanné : texte lu par OCR, puis vérifié', async ({ page }) => {
   const review = page.getByRole('dialog', { name: 'Vérifier l\'import' })
   await expect(review).toContainText('pages scannées')
   await expect(review.getByRole('img', { name: 'Page 1' })).toBeVisible()
+})
+
+test('PDF scanné en espagnol : relu avec la langue du patron', async ({ page }) => {
+  test.setTimeout(120_000)
+  const languages: string[] = []
+  page.on('request', (r) => { const m = r.url().match(/ocr\/lang\/(\w+)\.traineddata/); if (m) languages.push(m[1]) })
+  await home(page)
+  const pdf = await makeScannedPdf(page, ['CABEZA', 'Vuelta 1: 6 pb en un anillo mágico (6)', 'Vuelta 2: 6 aum (12)', 'Vuelta 3: (1 pb, aum) x6 (18)', 'Vuelta 4: 18 pb (18)', 'Vuelta 5: (1 pb, dism) x6 (12)'])
+  await page.getByRole('button', { name: /Nouveau patron/ }).click()
+  const form = page.getByRole('dialog', { name: 'Nouveau patron' })
+  await form.getByLabel('Nom').fill('Escaneado')
+  await form.locator('input[type=file][accept*=pdf]').setInputFiles({ name: 'escaneado.pdf', mimeType: 'application/pdf', buffer: pdf })
+  await expect(form.getByRole('status')).toContainText('5 rangs reconnus', { timeout: 90_000 })
+  await expect(form.locator('.analysis').first()).toContainText('comptes cohérents')
+  expect(languages).toContain('spa')
+})
+
+test('compteur mains libres : casque / montre et voix', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { media: Record<string, () => void>, speech: { emit(text: string): void } | null }
+    w.media = {}
+    navigator.mediaSession.setActionHandler = (action, handler) => { if (handler) w.media[action] = handler as () => void; else delete w.media[action] }
+    HTMLMediaElement.prototype.play = function () { return Promise.resolve() }
+    w.speech = null
+    class FakeRecognition {
+      onresult: ((e: unknown) => void) | null = null
+      onend: (() => void) | null = null
+      onerror: (() => void) | null = null
+      lang = ''
+      continuous = false
+      interimResults = false
+      start() {
+        w.speech = { emit: (text) => this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: text }], { isFinal: true })] }) }
+      }
+      stop() { w.speech = null }
+    }
+    Object.assign(window, { SpeechRecognition: FakeRecognition, webkitSpeechRecognition: FakeRecognition })
+  })
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('tab', { name: 'Compteur' }).click()
+  await expect(page.locator('.counter-title strong')).toHaveText('R8')
+  const free = page.locator('.hands-free')
+  await free.getByText('Casque, montre et écran verrouillé').click()
+  await expect(free).toContainText('actif')
+  const media = (action: string) => page.evaluate((a) => (window as unknown as { media: Record<string, () => void> }).media[a](), action)
+  await media('play')
+  await media('pause')
+  await expect(page.locator('.counter-value')).toHaveText('2')
+  await expect.poll(() => page.evaluate(() => navigator.mediaSession.metadata?.title)).toMatch(/^R8 · 2 \/ \d+ mailles$/)
+  await media('previoustrack')
+  await expect(page.locator('.counter-value')).toHaveText('1')
+  await media('nexttrack')
+  await expect(page.locator('.counter-title strong')).toHaveText('R9')
+
+  await free.getByText('Commandes vocales').click()
+  await expect(free).toContainText('à l\'écoute')
+  const say = (text: string) => page.evaluate((x) => (window as unknown as { speech: { emit(t: string): void } }).speech.emit(x), text)
+  await say('maille maille maille')
+  await expect(page.locator('.counter-value')).toHaveText('3')
+  await say('moins')
+  await expect(page.locator('.counter-value')).toHaveText('2')
+  await say('rang terminé')
+  await expect(page.locator('.counter-title strong')).toHaveText('R10')
+  // éteint : plus de commandes
+  await free.getByText('Casque, montre et écran verrouillé').click()
+  await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { media: object }).media).length)).toBe(0)
+})
+
+test('saisie du patron : compte de la ligne, abréviations, rang suivant', async ({ page }) => {
+  await home(page)
+  await page.getByRole('button', { name: /Nouveau patron/ }).click()
+  const form = page.getByRole('dialog', { name: 'Nouveau patron' })
+  const area = form.getByLabel('Texte du patron')
+  await area.click()
+  await area.pressSequentially('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 a')
+  const assist = form.locator('.text-assist')
+  await expect(assist.locator('.ta-words .chip').first()).toHaveText('aug')
+  await page.keyboard.press('Tab')
+  await expect(area).toHaveValue(/R2 : 6 aug $/)
+  await expect(area).toBeFocused()
+  await area.pressSequentially('(12)')
+  await expect(assist.locator('.ta-line')).toContainText('R2 · 12 mailles ✓')
+  await assist.getByRole('button', { name: 'Rang suivant (R3)' }).click()
+  await expect(area).toHaveValue(/\(12\)\nR3 : $/)
+  await area.pressSequentially('*1 ms, aug* x6 (20)')
+  await expect(assist.locator('.ta-line')).toHaveClass(/warn/)
+  await expect(assist.locator('.ta-line')).toContainText('18 mailles calculées, 20 annoncées')
+})
+
+test('statistiques : temps, rangs, fil, par semaine et par patron', async ({ page }) => {
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('tab', { name: 'Compteur' }).click()
+  await page.getByRole('button', { name: /Rang terminé/ }).click()
+  await page.getByRole('button', { name: /Rang terminé/ }).click()
+  await page.getByRole('button', { name: 'Bibliothèque' }).click()
+  await page.getByRole('button', { name: 'Sauvegarde et options' }).click()
+  await page.getByRole('menuitem', { name: 'Statistiques' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Statistiques' })
+  await expect(dialog.locator('.stat-tile').nth(1)).toContainText('9')
+  await expect(dialog.locator('.stats-patterns tbody tr').first()).toContainText('9 / 30')
+  // les deux rangs cochés aujourd'hui tombent dans la semaine en cours
+  await dialog.getByRole('radio', { name: 'Rangs' }).click()
+  await expect(dialog.locator('.wc-bar')).toHaveCount(1)
+  await dialog.locator('.week-chart g[tabindex]').last().hover()
+  await expect(dialog.locator('.wc-tip')).toContainText('2')
+  await dialog.getByText('Voir les données').click()
+  await expect(dialog.locator('.stats-table tbody tr')).toHaveCount(12)
 })
 
 test('3D : placement manuel d\'une oreille, symétrique, réinitialisation', async ({ page }) => {

@@ -2,6 +2,8 @@
 // Les lignes sont reconstituées à partir des positions du texte, puis nettoyées pour que
 // le parseur reconnaisse les rangs (« R1 : 6 ms… »).
 
+import { patternLanguage, type PatternLanguage } from '../domain/language'
+
 const MAX_PAGES = 80
 
 /** Fragment de texte d'une page PDF (position du coin bas gauche, largeur, taille de police). */
@@ -13,6 +15,13 @@ export interface TextPiece { s: string, x: number, y: number, w: number, h: numb
  * « 36 – 36 sc » et « After row 35 – » : le parseur relit les cellules.
  */
 export function pageLines(pieces: TextPiece[]): string[] {
+  return pageRows(pieces).map((r) => r.text)
+}
+
+/** Ligne d'une page et le rectangle qu'elle occupe (unités du PDF, origine en bas à gauche). */
+export interface PageRow { text: string, x0: number, y0: number, x1: number, y1: number }
+
+function pageRows(pieces: TextPiece[]): PageRow[] {
   const rows: { y: number, h: number, parts: TextPiece[] }[] = []
   for (const p of pieces) {
     if (!p.s) continue
@@ -24,11 +33,12 @@ export function pageLines(pieces: TextPiece[]): string[] {
     row.parts.push(p)
   }
   rows.sort((a, b) => b.y - a.y)
-  const out: string[] = []
+  const out: PageRow[] = []
   for (const row of rows) {
     const parts = row.parts.sort((a, b) => a.x - b.x)
     let cur = ''
     let end = -Infinity
+    let start = Infinity
     for (const p of parts) {
       // pdf.js comble l'écart entre deux colonnes par une « espace » très large : elle ne compte pas
       if (!p.s.trim()) continue
@@ -40,11 +50,29 @@ export function pageLines(pieces: TextPiece[]): string[] {
         cur += ' '
       }
       cur += p.s
+      start = Math.min(start, p.x)
       end = p.x + (p.w || p.s.length * row.h * 0.5)
     }
-    if (cur.trim()) out.push(cur.trim())
+    if (cur.trim()) out.push({ text: cur.trim(), x0: start, x1: end, y0: row.y - row.h * 0.3, y1: row.y + row.h })
   }
   return out
+}
+
+/** Lignes d'une page avec leur place (fractions de la page, origine en haut à gauche) : l'écran de vérification les surligne. */
+export interface PageLayout { lines: { text: string, box: [number, number, number, number] }[] }
+
+/** Place des lignes d'une page, dans l'ordre de lecture ; `view` = [x0, y0, x1, y1] de la page. */
+export function pageLayout(pieces: TextPiece[], view: number[], ocr = false): PageLayout {
+  const [vx, vy, vx1, vy1] = view
+  const w = vx1 - vx || 1
+  const h = vy1 - vy || 1
+  const clamp = (v: number) => Math.min(1, Math.max(0, v))
+  return {
+    lines: readingBlocks(pieces, 0, ocr).flatMap(pageRows).map((r) => ({
+      text: ocr ? cleanOcrLine(r.text) : r.text,
+      box: [clamp((r.x0 - vx) / w), clamp((vy1 - r.y1) / h), clamp((r.x1 - vx) / w), clamp((vy1 - r.y0) / h)],
+    })),
+  }
 }
 
 /**
@@ -68,6 +96,8 @@ export interface PdfContent {
   photos: Blob[]
   /** aperçu des premières pages (JPEG, data:), pour vérifier les rangs reconnus */
   pages: string[]
+  /** place des lignes sur ces pages */
+  layout: PageLayout[]
   /** texte lu par reconnaissance de caractères (PDF scanné) : à vérifier de près */
   ocr: boolean
 }
@@ -84,7 +114,9 @@ export interface PdfOptions {
   /** lecture des PDF scannés (OCR) : avancement */
   onProgress?: (p: PdfProgress) => void
   /** lecture des pages scannées ; par défaut Tesseract.js (chargé seulement si besoin) */
-  ocr?: (onProgress: (progress: number) => void) => Promise<import('./ocr').Ocr>
+  ocr?: (onProgress: (progress: number) => void, languages?: PatternLanguage[]) => Promise<import('./ocr').Ocr>
+  /** lire toutes les pages par OCR, sans le texte du PDF (texte mal encodé, illisible) */
+  ocrOnly?: boolean
 }
 
 const PREVIEW_PAGES = 12
@@ -213,20 +245,33 @@ async function openPdf(data: Blob) {
   return { pdfjs, doc }
 }
 
-/** Aperçu des premières pages d'un PDF (JPEG, data:). */
-export async function pdfPreviews(data: Blob): Promise<string[]> {
+interface TextItem { str?: string, transform: number[], width: number, height: number }
+
+function textPieces(items: unknown[]): TextPiece[] {
+  const pieces: TextPiece[] = []
+  for (const item of items as TextItem[]) {
+    if (!item.str) continue
+    pieces.push({ s: item.str, x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || Math.abs(item.transform[3]) })
+  }
+  return pieces
+}
+
+/** Aperçu des premières pages d'un PDF (JPEG, data:) et place de leurs lignes. */
+export async function pdfPreviews(data: Blob): Promise<{ pages: string[], layout: PageLayout[] }> {
   const { doc } = await openPdf(data)
-  const out: string[] = []
+  const pages: string[] = []
+  const layout: PageLayout[] = []
   try {
     for (let n = 1; n <= Math.min(doc.numPages, PREVIEW_PAGES); n++) {
       const page = await doc.getPage(n)
-      out.push(await previewOf(page as unknown as PdfPage))
+      pages.push(await previewOf(page as unknown as PdfPage))
+      layout.push(pageLayout(textPieces((await page.getTextContent()).items), page.view))
       page.cleanup()
     }
   } finally {
     await doc.destroy()
   }
-  return out
+  return { pages, layout }
 }
 
 async function previewOf(page: PdfPage): Promise<string> {
@@ -242,17 +287,15 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
   const seen = new Set<string>()
   let metaTitle: string | null = null
   let ocr = false
+  const ocrPages = new Set<number>()
+  const views: number[][] = []
   try {
     metaTitle = ((await doc.getMetadata().catch(() => null))?.info as { Title?: string } | undefined)?.Title ?? null
     for (let n = 1; n <= Math.min(doc.numPages, MAX_PAGES); n++) {
       const page = await doc.getPage(n)
-      const content = await page.getTextContent()
-      const pieces: TextPiece[] = []
-      for (const item of content.items) {
-        if (!('str' in item) || !item.str) continue
-        pieces.push({ s: item.str, x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || Math.abs(item.transform[3]) })
-      }
+      const pieces = textPieces((await page.getTextContent()).items)
       pages.push(pieces)
+      views.push(page.view)
       if (n <= PREVIEW_PAGES) {
         try {
           previews.push(await previewOf(page as unknown as PdfPage))
@@ -302,21 +345,41 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
     }
     // PDF scanné (presque pas de texte dans tout le document, pas seulement des pages de photos) :
     // ses pages sans texte sont lues par OCR
-    const scanned = pages.map((p, i) => (textChars(p) < SCANNED_CHARS ? i : -1)).filter((i) => i >= 0).slice(0, OCR_PAGES)
-    if (scanned.length && textChars(pages.flat()) < SCANNED_DOC_CHARS * pages.length) {
+    const scanned = options.ocrOnly ? pages.map((_, i) => i).slice(0, OCR_PAGES)
+      : pages.map((p, i) => (textChars(p) < SCANNED_CHARS ? i : -1)).filter((i) => i >= 0).slice(0, OCR_PAGES)
+    if (options.ocrOnly) for (const i of scanned) pages[i] = []
+    if (scanned.length && (options.ocrOnly || textChars(pages.flat()) < SCANNED_DOC_CHARS * pages.length)) {
       let at = 1
       const report = (progress: number) => options.onProgress?.({ page: at, pages: scanned.length, progress })
       report(0)
-      const engine = await (options.ocr ?? ((cb) => import('./ocr').then((m) => m.createOcr(cb))))(report)
+      const create = options.ocr ?? ((cb, languages) => import('./ocr').then((m) => m.createOcr(cb, languages)))
+      let engine = await create(report)
+      // langue du patron reconnue sur les premières pages : un patron espagnol, allemand… est relu
+      // dans sa langue
+      let decided = false
+      const before = new Map(scanned.map((i) => [i, pages[i]]))
       try {
-        for (const [k, i] of scanned.entries()) {
+        for (let k = 0; k < scanned.length; k++) {
+          const i = scanned[k]
           at = k + 1
           report(0)
           const page = await doc.getPage(i + 1)
           const canvas = await renderPage(page as unknown as PdfPage, OCR_SCALE)
           page.cleanup()
-          pages[i] = [...pages[i], ...await engine.read(canvas, OCR_SCALE)]
+          // l'OCR compte depuis le coin de la page, le texte du PDF depuis l'origine de la page
+          const [vx, vy] = page.view
+          pages[i] = [...before.get(i)!, ...(await engine.read(canvas, OCR_SCALE)).map((p) => ({ ...p, x: p.x + vx, y: p.y + vy }))]
+          ocrPages.add(i)
           canvas.width = canvas.height = 0
+          if (decided) continue
+          const read = scanned.slice(0, k + 1).flatMap((j) => pages[j]).map((p) => p.s).join(' ')
+          const language = patternLanguage(read)
+          decided = !!language || read.length > 4000
+          if (language && language !== 'fra' && language !== 'eng') {
+            await engine.close()
+            engine = await create(report, [language, 'eng'])
+            k = -1
+          }
         }
         ocr = true
       } finally {
@@ -329,7 +392,8 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
   // titre lu sur la page 1 sans les en-têtes répétés
   // un scan pleine page n'est pas une photo de l'ouvrage
   const kept = photos.filter((p) => !(ocr && p.full && textChars(pages[p.page - 1]) >= SCANNED_CHARS)).map((p) => p.blob)
-  return { text: piecesToText(pages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr }
+  return { text: piecesToText(pages, ocrPages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr,
+    layout: previews.map((_, i) => pageLayout(pages[i] ?? [], views[i] ?? [0, 0, 595, 842], ocrPages.has(i))) }
 }
 
 /** Texte seul d'un PDF. */
@@ -356,14 +420,15 @@ function widestGap(spans: [number, number][], min: number): { at: number, size: 
  * colonnes (lues l'une après l'autre), sinon le plus grand espace horizontal sépare le haut du bas
  * (en-tête et corps de page). Sans cela, les lignes de trois colonnes seraient entremêlées.
  */
-export function readingBlocks(pieces: TextPiece[], depth = 0): TextPiece[][] {
+export function readingBlocks(pieces: TextPiece[], depth = 0, words = false): TextPiece[][] {
   const items = pieces.filter((p) => p.s.trim())
   if (items.length < 4 || depth > 16) return [items]
   const sizes = items.map((p) => p.h || 10).sort((a, b) => a - b)
   const h = sizes[Math.floor(sizes.length / 2)]
   // gouttière étroite (texte justifié : 6 pt pour une police de 12) : il faut alors plusieurs lignes de
   // chaque côté, pour ne pas couper deux lignes dont les espaces tombent par hasard au même endroit
-  const v = widestGap(items.map((p) => [p.x, p.x + pieceWidth(p)]), Math.max(4, h * 0.4))
+  // mots isolés (OCR) : les espaces entre mots sont plus larges qu'entre les fragments d'un PDF
+  const v = widestGap(items.map((p) => [p.x, p.x + pieceWidth(p)]), Math.max(4, h * (words ? 0.7 : 0.4)))
   if (v) {
     const left = items.filter((p) => p.x + pieceWidth(p) / 2 < v.at)
     const right = items.filter((p) => p.x + pieceWidth(p) / 2 >= v.at)
@@ -379,23 +444,92 @@ export function readingBlocks(pieces: TextPiece[], depth = 0): TextPiece[][] {
     const table = aligned > 0.7 && (short(left, /^(?:\p{L}{0,8}\.?\s*)?\d{1,3}(?:\s*[-–&]\s*\d{1,3})?\s*[:.]?$/u) > 0.6 || short(right, /^\(?\d{1,4}\)?$/) > 0.6)
     // deux vraies colonnes (pas « R1: » aligné à gauche de ses instructions)
     if (enough && !table && extent(left) >= 60 && extent(right) >= 60) {
-      return [...readingBlocks(left, depth + 1), ...readingBlocks(right, depth + 1)]
+      return [...readingBlocks(left, depth + 1, words), ...readingBlocks(right, depth + 1, words)]
     }
   }
   const g = widestGap(items.map((p) => [p.y, p.y + (p.h || 10)]), h * 0.6)
   if (g) {
     const top = items.filter((p) => p.y >= g.at)
     const bottom = items.filter((p) => p.y < g.at)
-    if (top.length && bottom.length) return [...readingBlocks(top, depth + 1), ...readingBlocks(bottom, depth + 1)]
+    if (top.length && bottom.length) return [...readingBlocks(top, depth + 1, words), ...readingBlocks(bottom, depth + 1, words)]
   }
   return [items]
 }
 
 /** Texte des pages : en-têtes répétés retirés, lignes reconstituées, nettoyage. */
-export function piecesToText(pages: TextPiece[][]): string {
+export function piecesToText(pages: TextPiece[][], ocrPages: ReadonlySet<number> = new Set()): string {
+  const labels = ocrLabels()
   return cleanPdfText(removeRunningPieces(pages)
-    .map((p) => readingBlocks(p).map((block) => pageLines(block).join('\n')).join('\n'))
+    .map((p, i) => readingBlocks(p, 0, ocrPages.has(i)).map((block) => {
+      const lines = pageLines(block)
+      return (ocrPages.has(i) ? lines.map((l) => labels(cleanOcrLine(l))) : lines).join('\n')
+    }).join('\n'))
     .join('\n\n'))
+}
+
+/**
+ * Numéros de rang mal lus par l'OCR (« RS : », « RIO : », « | : », rien avant « : ») : les rangs se
+ * suivent, le numéro est déduit du rang précédent. Un vrai « R12 : » remet la suite à jour.
+ */
+export function ocrLabels(): (line: string) => string {
+  let last: number | null = null
+  // lignes de texte (sans mailles) depuis le dernier rang : une nouvelle pièce commence
+  let text = 0
+  const stitches = new RegExp(String.raw`\b${STITCH_WORD}\b`)
+  return (line) => {
+    const good = line.match(/^R\s?(\d{1,3})(?:\s*[-–à]\s*R?\s?(\d{1,3}))?\s*:/)
+    if (good) {
+      last = parseInt(good[2] ?? good[1], 10)
+      text = 0
+      return line
+    }
+    const bad = line.match(/^(?:R[A-Za-z0-9%|!]{0,3}|[|!I]|)\s*:\s*(.*)$/)
+    if (!bad || !stitches.test(bad[1])) {
+      if (line.trim() && !stitches.test(line)) text++
+      return line
+    }
+    // premier rang d'une pièce : « Ri : ch 2… » juste après un titre et ses consignes
+    const next: number = last == null || text >= 2 ? 1 : last + 1
+    text = 0
+    last = next
+    return `R${next} : ${bad[1]}`
+  }
+}
+
+const STITCH_WORD = String.raw`(?:aug|dim|inc|dec|sc|ms|mc|ml|ch|db|br|hdc|dc|tr|sl|st|x\s?\d)`
+
+/**
+ * Erreurs de lecture courantes de l'OCR dans un patron : « | aug » ou « I aug » pour « 1 aug »,
+ * « R3% » pour « R34 », « ma » pour « ms », mots collés (« 4to7—18sc(4rows) »), puces lues comme
+ * « + » ou « o », tiret collé au numéro de rang (« 21-24sc »).
+ */
+export function cleanOcrLine(line: string): string {
+  let l = line
+    // puces devant un rang
+    .replace(/^(?:[+o°•*·»«>~=©®-]+\s*)+(?=R\S{0,3}\s*:|[|!I]\s*:|:|R\s?\d|\d)/, '')
+    // « RI-6 : », « Rl2 : » : 1 lu comme I, l, | ou ! dans un numéro de rang
+    .replace(/^R[Il|!](?=\d|\s*[-–à]\s*\d)/, 'R1')
+    // 1 lu comme | I ! l devant une maille, une virgule ou une parenthèse
+    .replace(new RegExp(String.raw`(^|[\s,:(*\[])[|!Il](?=\s*(?:${STITCH_WORD}\b|[,)]))`, 'g'), '$11')
+    // 4 lu comme % ou Y : « R3% », « (%6) », « % ms »
+    .replace(/(\d)[%Y](?![A-Za-z])/g, '$14')
+    .replace(/\(([\d%]{1,3})\)/g, (_, n: string) => `(${n.replace(/%/g, '4')})`)
+    .replace(new RegExp(String.raw`(^|[\s,(*])%(?=\s*${STITCH_WORD}\b)`, 'g'), '$14')
+    // « ms » lu comme ma, me, mas, rns
+    .replace(/(\d\s*)(?:ma|me|mas|rns|m5)\b/g, '$1ms')
+    // mots collés
+    .replace(/(\d)(sc|inc|dec|ms|aug|dim|rows?|rnds?|rounds?|to|and|ch|dc|hdc|tr|sl|st)\b/g, '$1 $2')
+    .replace(/(\d)(to|and)(?=\d)/g, '$1 $2')
+    .replace(/\b(to|and|rows?|rnds?|between)(\d)/g, '$1 $2')
+    .replace(/(\d)\(/g, '$1 (')
+    .replace(/\bmagicring\b/gi, 'magic ring')
+    .replace(/\b(sc|inc|dec)(into|in|around)/g, '$1 $2')
+    .replace(/\binto(a|the)\b/g, 'into $1')
+    .replace(/([a-z])\((\d)/g, '$1 ($2')
+    // numéro de rang sans préfixe collé à son tiret : « 2 —6 inc », « 21-24 sc »
+    .replace(/^(\d+(?:\s+(?:to|and|&)\s+\d+)?)\s*[—–]\s*/, '$1 – ')
+  if (!/\s[—–]\s/.test(l)) l = l.replace(/^(\d+)\s*-\s*(?=\d+\s*[a-z(])/, '$1 – ')
+  return l
 }
 
 /** Nettoyage du texte extrait : espaces, césures, numéros de page, puces. */

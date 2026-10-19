@@ -14,7 +14,9 @@ fonctionne hors connexion.
   modifiables et réordonnables, **estimation du fil** nécessaire (au total et par couleur, d'après les
   mailles et la taille du crochet), **chronomètre** de travail (temps total et sur 7 jours)
 - **Compteur** : un rang à la fois, gros anneau de comptage tactile, « Rang terminé — suivant »,
-  annulation, écran maintenu allumé, raccourcis clavier, **note et photo par rang**
+  annulation, écran maintenu allumé, raccourcis clavier, **note et photo par rang** ; **mains libres** :
+  boutons du casque, montre connectée et écran verrouillé (lecture / pause = +1 maille, suivant = rang
+  terminé, précédent = −1) ou commandes vocales (« maille », « moins », « rang terminé », « zéro »)
 - **Rangs** : vue **tissu** réaliste (chaque maille dessinée brin par brin, rangs non faits estompés)
   ou **diagramme** à symboles internationaux ; contrôle des comptes ; export SVG et impression
 - **3D** : chaque pièce reconstruite à partir des comptes et de la hauteur des mailles, texture de
@@ -26,9 +28,13 @@ fonctionne hors connexion.
   dans l'ordre de lecture même en plusieurs colonnes, sans les en-têtes / pieds de page répétés ; nom
   (métadonnées, grand titre ou nom du fichier), crochet et fil pré-remplis ; **les photos de l'ouvrage
   sont importées** (couverture + galerie, sans les fonds de page ni les logos) ; **PDF scannés lus par
-  OCR** (Tesseract.js, français et anglais, servi par l'application et chargé seulement pour un scan) ;
+  OCR** (Tesseract.js, français et anglais, servi par l'application et chargé seulement pour un scan),
+  avec correction des erreurs de lecture courantes (« | aug » pour « 1 aug », « R3% » pour « R34 »,
+  numéros de rang illisibles déduits de la suite) ; un scan espagnol, allemand, italien, portugais ou
+  néerlandais est relu dans sa langue ; bouton « Lire par OCR » pour un PDF dont le texte extrait est
+  illisible ;
   **écran de vérification** : les pages du PDF à côté des lignes reconnues, rangs dont le compte ne
-  tombe pas juste signalés, chaque ligne corrigeable sur place
+  tombe pas juste signalés, chaque ligne corrigeable sur place et surlignée sur sa page
 - **Fils à prévoir** : pour chaque couleur, son nom dans le patron, les pièces concernées, la longueur
   (marge comprise) et le poids ; épaisseur de fil conseillée d'après le crochet (catégories 1 à 6) et
   matière (coton, laine, chenille…) ; une couleur que le patron ne précise pas est marquée
@@ -37,8 +43,13 @@ fonctionne hors connexion.
   qu'elle devient, avec le fil et son épaisseur, si l'on change de crochet
 - **Fiche imprimable** (ou PDF via le navigateur) : photos, matériel, fils à prévoir, étapes, rangs à
   cocher avec leurs notes, diagrammes de chaque pièce
-- **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
-  ou fichier `.crochet.json`
+- **Saisie du patron** : compte de mailles de la ligne en cours (et l'erreur éventuelle), abréviations
+  proposées dans la langue du patron (Tab pour compléter), bouton « Rang suivant »
+- **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes),
+  **lien imprimable** (ouvre directement la fiche à imprimer, sans rien ajouter), fichier
+  `.crochet.json` ou **export Markdown** (texte lisible, rangs faits cochés)
+- **Statistiques** : temps de crochet, rangs terminés, patrons finis et en cours, fil utilisé ; par
+  semaine (12 dernières semaines : temps, rangs, fil) et par patron (rangs par heure)
 - **Dupliquer** un patron pour le refaire (de zéro) ou garder une version en cours (avec la progression)
 - **Sauvegarde** : export / import JSON complet (photos comprises), suppression annulable, patrons
   d'exemple originaux (souris, cœur, abeille rayée multicolore),
@@ -147,3 +158,6 @@ tests/         tests unitaires      e2e/   tests Playwright      docs/REVIEW.md 
   rang) non représentés ; l'OCR d'un scan est à relire (écran de vérification), surtout pour les
   pages manuscrites ou de mauvaise qualité
 - L'estimation du fil est un ordre de grandeur (± 20 %), qui dépend de la tension de chacun
+- Les statistiques par semaine des rangs et du fil commencent avec cette version (la date de chaque
+  rang coché n'était pas enregistrée avant) ; les commandes vocales dépendent du navigateur (Chrome,
+  Edge, Safari), dont la reconnaissance peut passer par les serveurs de son éditeur

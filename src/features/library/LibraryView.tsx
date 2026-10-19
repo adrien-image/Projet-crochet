@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import {
-  CloudOff, Download, Ellipsis, FolderSync, HardDrive, Languages, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Upload, X,
+  BarChart3, CloudOff, Download, Ellipsis, FolderSync, HardDrive, Languages, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Upload, X,
 } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { patternProgress } from '../../domain/progress'
@@ -41,6 +41,7 @@ interface Props {
   onRestoreSamples: () => void
   onLang: (lang: Lang) => void
   onStorage: () => void
+  onStats: () => void
   reminder: { show: boolean, lastExportAt: string | null, onSnooze: () => void }
   sync: SyncInfo
 }
@@ -92,6 +93,7 @@ export function LibraryView(props: Props) {
     ...(sync.status === 'unsupported' ? [] : sync.status === 'off'
       ? [{ label: t('Synchroniser avec un fichier…'), icon: <FolderSync size={16} />, onSelect: sync.link }]
       : [{ label: t('Arrêter la synchronisation'), icon: <CloudOff size={16} />, onSelect: sync.unlink }]),
+    { label: t('Statistiques'), icon: <BarChart3 size={16} />, onSelect: props.onStats },
     { label: t('Stockage et sécurité des données'), icon: <HardDrive size={16} />, onSelect: props.onStorage },
     { label: lang === 'fr' ? 'English' : 'Français', icon: <Languages size={16} />, onSelect: () => props.onLang(lang === 'fr' ? 'en' : 'fr') },
     { label: t('Restaurer les exemples'), icon: <RotateCcw size={16} />, onSelect: props.onRestoreSamples, disabled: hasSamples },
