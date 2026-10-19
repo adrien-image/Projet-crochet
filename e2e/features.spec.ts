@@ -324,6 +324,58 @@ test('PDF scanné en espagnol : relu avec la langue du patron', async ({ page })
   expect(languages).toContain('spa')
 })
 
+test('compteur mains libres : casque / montre et voix', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { media: Record<string, () => void>, speech: { emit(text: string): void } | null }
+    w.media = {}
+    navigator.mediaSession.setActionHandler = (action, handler) => { if (handler) w.media[action] = handler as () => void; else delete w.media[action] }
+    HTMLMediaElement.prototype.play = function () { return Promise.resolve() }
+    w.speech = null
+    class FakeRecognition {
+      onresult: ((e: unknown) => void) | null = null
+      onend: (() => void) | null = null
+      onerror: (() => void) | null = null
+      lang = ''
+      continuous = false
+      interimResults = false
+      start() {
+        w.speech = { emit: (text) => this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: text }], { isFinal: true })] }) }
+      }
+      stop() { w.speech = null }
+    }
+    Object.assign(window, { SpeechRecognition: FakeRecognition, webkitSpeechRecognition: FakeRecognition })
+  })
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('tab', { name: 'Compteur' }).click()
+  await expect(page.locator('.counter-title strong')).toHaveText('R8')
+  const free = page.locator('.hands-free')
+  await free.getByText('Casque, montre et écran verrouillé').click()
+  await expect(free).toContainText('actif')
+  const media = (action: string) => page.evaluate((a) => (window as unknown as { media: Record<string, () => void> }).media[a](), action)
+  await media('play')
+  await media('pause')
+  await expect(page.locator('.counter-value')).toHaveText('2')
+  await expect.poll(() => page.evaluate(() => navigator.mediaSession.metadata?.title)).toMatch(/^R8 · 2 \/ \d+ mailles$/)
+  await media('previoustrack')
+  await expect(page.locator('.counter-value')).toHaveText('1')
+  await media('nexttrack')
+  await expect(page.locator('.counter-title strong')).toHaveText('R9')
+
+  await free.getByText('Commandes vocales').click()
+  await expect(free).toContainText('à l\'écoute')
+  const say = (text: string) => page.evaluate((x) => (window as unknown as { speech: { emit(t: string): void } }).speech.emit(x), text)
+  await say('maille maille maille')
+  await expect(page.locator('.counter-value')).toHaveText('3')
+  await say('moins')
+  await expect(page.locator('.counter-value')).toHaveText('2')
+  await say('rang terminé')
+  await expect(page.locator('.counter-title strong')).toHaveText('R10')
+  // éteint : plus de commandes
+  await free.getByText('Casque, montre et écran verrouillé').click()
+  await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { media: object }).media).length)).toBe(0)
+})
+
 test('3D : placement manuel d\'une oreille, symétrique, réinitialisation', async ({ page }) => {
   await home(page)
   await openMouse(page)

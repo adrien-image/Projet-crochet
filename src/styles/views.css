@@ -544,3 +544,8 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 }
 .review-open { align-self: flex-start; margin-top: 6px; }
 .review-line.text .input:not(:focus) { border-color: transparent; background: transparent; }
+
+/* Compteur mains libres */
+.hands-free { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.hands-free h3 { margin: 0; font-size: 0.95rem; }
+.hands-free .switch span svg { vertical-align: -2px; }

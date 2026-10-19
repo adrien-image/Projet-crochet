@@ -16,6 +16,8 @@ const CSP = [
   "font-src 'self' data:",
   "connect-src 'self' blob: data:",
   "worker-src 'self' blob:",
+  // silence joué en boucle pour les commandes du casque et de l'écran verrouillé (compteur)
+  "media-src 'self' blob:",
   // aperçu du PDF joint
   "frame-src blob:",
   "object-src 'none'",

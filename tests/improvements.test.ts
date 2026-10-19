@@ -7,6 +7,7 @@ import { outlineText, parsePattern } from '../src/domain/parser'
 import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
 import { patternLanguage } from '../src/domain/language'
+import { voiceCommands } from '../src/domain/voice'
 import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
 
@@ -136,4 +137,16 @@ test('vérification : une ligne retrouvée sur sa page, même nettoyée', () => 
   expect(findOnPages('R2: 6 inc (12) — stuff', layout)?.box[1]).toBeCloseTo((842 - 732) / 842, 2)
   expect(findOnPages('Something else entirely', layout)).toBeNull()
   expect(occurrenceOf(['a', 'R1: x', 'b', 'R1: x'], 3)).toBe(1)
+})
+
+test('commandes vocales du compteur, en français et en anglais', () => {
+  expect(voiceCommands('maille')).toEqual(['add'])
+  expect(voiceCommands('plus plus plus')).toEqual(['add', 'add', 'add'])
+  expect(voiceCommands('moins une')).toEqual(['remove'])
+  expect(voiceCommands('rang terminé')).toEqual(['finish'])
+  expect(voiceCommands('maille puis rang suivant')).toEqual(['add', 'finish'])
+  expect(voiceCommands('remettre à zéro')).toEqual(['reset'])
+  expect(voiceCommands('stitch stitch next row')).toEqual(['add', 'add', 'finish'])
+  expect(voiceCommands('undo')).toEqual(['remove'])
+  expect(voiceCommands('il fait beau')).toEqual([])
 })

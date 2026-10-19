@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, Minus, RotateCcw, Undo2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Headphones, Mic, Minus, RotateCcw, Undo2 } from 'lucide-react'
 import type { Pattern, StitchType } from '../../domain/types'
 import { STITCH_INFO } from '../../domain/parser'
 import { roundsOf } from '../../domain/progress'
 import { useWakeLock, wakeLockSupported } from '../../hooks/useWakeLock'
-import { t, tn } from '../../i18n'
+import { useMediaControls, mediaControlsSupported } from '../../hooks/useMediaControls'
+import { useVoiceCommands, voiceSupported } from '../../hooks/useVoiceCommands'
+import { getLang, t, tn } from '../../i18n'
 import { StitchGlyph } from '../shared/StitchGlyph'
 import { ProgressBar } from '../../ui/Progress'
 import { EmptyState } from '../../ui/EmptyState'
@@ -21,6 +23,9 @@ export function CounterTab({ pattern, update }: { pattern: Pattern, update: Upda
   const awake = useWakeLock(keepAwake)
   const stitches = pattern.stitchCounter || 0
   const [bump, setBump] = useState(0)
+  // mains libres : casque, montre et écran verrouillé, ou la voix
+  const [media, setMedia] = useState(false)
+  const [voice, setVoice] = useState(false)
 
   const i = Math.min(index, Math.max(rounds.length - 1, 0))
   const round = rounds[i]
@@ -47,9 +52,25 @@ export function CounterTab({ pattern, update }: { pattern: Pattern, update: Upda
     setIndex(rounds.findIndex((r) => r.key === prev))
   }
 
+  const reset = () => update((p) => setStitchCounter(p, 0))
+
   // raccourcis clavier : espace = +1 maille, Entrée = rang terminé, Retour arrière = −1
   const handlers = useRef({ add, finishRound })
   useEffect(() => { handlers.current = { add, finishRound } })
+
+  const mediaOn = useMediaControls(media && !!round, {
+    title: round ? `${round.label} · ${t('{s} / {n} mailles', { s: stitches, n: target })}` : '',
+    artist: pattern.name,
+    onPlay: () => handlers.current.add(1),
+    onNext: () => handlers.current.finishRound(),
+    onPrevious: () => handlers.current.add(-1),
+  })
+  const listen = useVoiceCommands(voice && !!round, getLang() === 'en' ? 'en-US' : 'fr-FR', (c) => {
+    if (c === 'add') handlers.current.add(1)
+    else if (c === 'remove') handlers.current.add(-1)
+    else if (c === 'finish') handlers.current.finishRound()
+    else reset()
+  })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
@@ -130,7 +151,7 @@ export function CounterTab({ pattern, update }: { pattern: Pattern, update: Upda
         </button>
         <div className="row-gap center">
           <button type="button" className="btn ghost" onClick={() => add(-1)} disabled={stitches === 0}><Minus size={16} /> 1</button>
-          <button type="button" className="btn ghost" onClick={() => update((p) => setStitchCounter(p, 0))} disabled={stitches === 0}><RotateCcw size={16} /> {t('Remettre à 0')}</button>
+          <button type="button" className="btn ghost" onClick={reset} disabled={stitches === 0}><RotateCcw size={16} /> {t('Remettre à 0')}</button>
         </div>
       </div>
 
@@ -142,6 +163,29 @@ export function CounterTab({ pattern, update }: { pattern: Pattern, update: Upda
           <Undo2 size={16} /> {t('Annuler le dernier rang')}
         </button>
       </div>
+
+      {(mediaControlsSupported || voiceSupported()) && (
+        <section className="hands-free panel" aria-label={t('Mains libres')}>
+          <h3>{t('Mains libres')}</h3>
+          {mediaControlsSupported && (
+            <label className="switch">
+              <input type="checkbox" checked={media} onChange={(e) => setMedia(e.target.checked)} />
+              <span className="switch-track" aria-hidden="true" />
+              <span><Headphones size={15} aria-hidden="true" /> {t('Casque, montre et écran verrouillé')}{mediaOn ? ` (${t('actif')})` : ''}</span>
+            </label>
+          )}
+          {media && <p className="muted sm">{t('Lecture / pause = +1 maille · Suivant = rang terminé · Précédent = −1')}</p>}
+          {voiceSupported() && (
+            <label className="switch">
+              <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />
+              <span className="switch-track" aria-hidden="true" />
+              <span><Mic size={15} aria-hidden="true" /> {t('Commandes vocales')}{listen.listening ? ` (${t('à l\'écoute')})` : ''}</span>
+            </label>
+          )}
+          {voice && !listen.error && <p className="muted sm">{t('Dites « maille » ou « plus », « moins », « rang terminé », « zéro ». La reconnaissance vocale du navigateur peut passer par les serveurs de son éditeur.')}</p>}
+          {listen.error && <p className="text-warn sm" role="alert">{t('Micro refusé : autorisez-le dans les réglages du navigateur.')}</p>}
+        </section>
+      )}
 
       <div className="counter-footer muted sm">
         {wakeLockSupported ? (
