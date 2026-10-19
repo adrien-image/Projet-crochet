@@ -365,8 +365,13 @@ button.sync-chip { border: 0; cursor: pointer; font: inherit; font-size: 0.8rem;
 /* Estimation du fil */
 .yarn-total { font-size: 1.5rem; font-weight: 700; font-family: var(--font-serif); margin: 0; }
 .yarn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem; }
-.yarn-list li { display: flex; align-items: center; gap: 8px; }
-.yarn-list li > :last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
+.yarn-list li { display: flex; align-items: center; gap: 10px; }
+.yarn-list .dot { flex: none; width: 14px; height: 14px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.yarn-name { display: flex; flex-direction: column; min-width: 0; }
+.yarn-name strong { font-weight: 600; text-transform: capitalize; }
+.yarn-name .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yarn-amount { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.yarn-type { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
 
 /* Notes et photos de rang */
 .note-mark { display: inline-flex; color: var(--accent-strong); flex: none; }

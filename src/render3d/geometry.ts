@@ -2,7 +2,7 @@
 // Les coordonnées de texture sont en « mailles » (u) et en « rangs » (v) : la tuile de texture
 // d'une maille se répète donc exactement une fois par maille du patron.
 import * as THREE from 'three'
-import type { Part, Ring, Vec3 } from './model'
+import { cushionHeight, type Part, type Ring, type Vec3 } from './model'
 
 const SEGMENTS = 96
 
@@ -63,7 +63,7 @@ export function latheGeometry(rings: Ring[], base = '#ffffff'): THREE.BufferGeom
   return g
 }
 
-export function panelGeometry(rows: { w: number, y: number, count: number, color?: string | null }[], base = '#ffffff'): THREE.BufferGeometry {
+export function panelGeometry(rows: { w: number, y: number, count: number, color?: string | null }[], base = '#ffffff', curve?: number): THREE.BufferGeometry {
   const list = rows.length === 1 ? [rows[0], { ...rows[0], y: rows[0].y + 0.9 }] : rows
   const cols = Math.max(2, Math.max(...list.map((r) => r.count))) + 1
   const pos = new Float32Array(list.length * cols * 3)
@@ -75,9 +75,15 @@ export function panelGeometry(rows: { w: number, y: number, count: number, color
       const f = j / (cols - 1)
       const k = i * cols + j
       const x = -row.w / 2 + f * row.w
-      // léger drapé : un tissu à plat n'est jamais parfaitement rigide
-      const z = 0.55 * Math.sin(x / 5.5) + 0.35 * Math.sin(row.y / 4.2 + x / 9)
-      pos.set([x, row.y, z], k * 3)
+      if (curve) {
+        // posé sur une pièce ronde : enroulé autour d'un cylindre de rayon `curve` (bord vers l'intérieur)
+        const a = x / curve
+        pos.set([curve * Math.sin(a), row.y, curve * (Math.cos(a) - 1)], k * 3)
+      } else {
+        // léger drapé : un tissu à plat n'est jamais parfaitement rigide
+        const z = 0.55 * Math.sin(x / 5.5) + 0.35 * Math.sin(row.y / 4.2 + x / 9)
+        pos.set([x, row.y, z], k * 3)
+      }
       uv.set([f * row.count, i], k * 2)
     }
   })
@@ -94,6 +100,50 @@ export function panelGeometry(rows: { w: number, y: number, count: number, color
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
   const vc = vertexColors(colors, base)
   if (vc) g.setAttribute('color', new THREE.BufferAttribute(vc, 3))
+  g.setIndex(index)
+  g.computeVertexNormals()
+  return g
+}
+
+/** Coussin : deux panneaux de même contour cousus et rembourrés, dessus et dessous de couleurs différentes. */
+export function cushionGeometry(rows: { w: number, y: number, count: number }[], puff: { top: string, bottom: string, thickness: number }): THREE.BufferGeometry {
+  const list = rows.map((r) => ({ ...r, color: null }))
+  const cols = Math.min(161, Math.max(3, Math.max(...list.map((r) => r.count)) + 1))
+  const n = list.length * cols
+  const pos = new Float32Array(n * 2 * 3)
+  const uv = new Float32Array(n * 2 * 2)
+  const col = new Float32Array(n * 2 * 3)
+  const top = new THREE.Color(puff.top)
+  const bottom = new THREE.Color(puff.bottom)
+  list.forEach((row, i) => {
+    for (let j = 0; j < cols; j++) {
+      const f = j / (cols - 1)
+      const x = -row.w / 2 + f * row.w
+      const h = cushionHeight(list, puff.thickness, x, row.y)
+      for (const [side, z, c] of [[0, h, top], [1, -h, bottom]] as const) {
+        const k = side * n + i * cols + j
+        pos.set([x, row.y, z], k * 3)
+        uv.set([f * row.count, i], k * 2)
+        col.set([c.r, c.g, c.b], k * 3)
+      }
+    }
+  })
+  const index: number[] = []
+  for (let side = 0; side < 2; side++) {
+    for (let i = 0; i < list.length - 1; i++) {
+      for (let j = 0; j < cols - 1; j++) {
+        const a = side * n + i * cols + j
+        const b = a + cols
+        // dessous : faces retournées vers le bas
+        if (side === 0) index.push(a, b, a + 1, a + 1, b, b + 1)
+        else index.push(a, a + 1, b, a + 1, b + 1, b)
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
   g.setIndex(index)
   g.computeVertexNormals()
   return g

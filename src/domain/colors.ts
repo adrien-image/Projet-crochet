@@ -18,7 +18,8 @@ const YARN_COLORS: [RegExp, string][] = [
   [/\brose\s+(?:p[âa]le|clair|poudr[ée])|\blight\s+pink|\bpale\s+pink/i, '#f2c4cf'],
   [/\bgris\s+(?:clair|perle)|\blight\s+gr[ae]y/i, '#c9c8c6'],
   [/\bgris\s+(?:fonc[ée]|anthracite)|\bdark\s+gr[ae]y|\bcharcoal/i, '#55565a'],
-  [/\b(?:gris|grise|grey|gray)\b/i, '#9b9a9c'],
+  // noms de coloris des fabricants : « rock corey », « stone », « ardoise »…
+  [/\b(?:gris|grise|grey|gray|rock|stone|pierre|ardoise|slate|ash|cendr[ée]e?|smoke|fum[ée]e|silver|argent[ée]?|pebble|galet|graphite|steel|acier)\b/i, '#9b9a9c'],
   [/\b(?:rose|pink)\b/i, '#e99aae'],
   [/\b(?:rouge|red|bordeaux)\b/i, '#c3323c'],
   [/\b(?:blanc|blanche|white)\b/i, '#f4f1ea'],
@@ -35,6 +36,19 @@ const YARN_COLORS: [RegExp, string][] = [
 ]
 
 export const DEFAULT_YARN = '#e9dcc6'
+
+/** Nom français des couleurs de fil connues (traduit à l'affichage). */
+const COLOR_NAMES: Record<string, string> = {
+  '#9cc3e6': 'bleu clair', '#2c3e66': 'bleu marine', '#a8d5b0': 'vert menthe', '#2f5d3a': 'vert foncé',
+  '#f2c4cf': 'rose pâle', '#c9c8c6': 'gris clair', '#55565a': 'gris foncé', '#9b9a9c': 'gris', '#e99aae': 'rose',
+  '#c3323c': 'rouge', '#f4f1ea': 'blanc', '#efe6d2': 'écru', '#2a2a2d': 'noir', '#4a72b0': 'bleu', '#3aa7a3': 'turquoise',
+  '#5e9a58': 'vert', '#e8c34a': 'jaune', '#e8854a': 'orange', '#8a5a3c': 'marron', '#d9c3a0': 'beige', '#8c6bb5': 'violet',
+  [DEFAULT_YARN]: 'naturel',
+}
+
+export function colorName(hex: string): string | null {
+  return COLOR_NAMES[hex.toLowerCase()] ?? null
+}
 
 /** Première couleur de fil mentionnée dans un texte, ou null. */
 export function findYarnColor(text: string | null | undefined): string | null {

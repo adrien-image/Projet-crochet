@@ -23,8 +23,12 @@ fonctionne hors connexion.
   modifiables, **changements de couleur par rang**, **placement manuel** des pièces (on touche le
   modèle à l'endroit où coudre), contrôle au clavier, image PNG
 - **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande),
-  sans les en-têtes / pieds de page répétés ni les légendes de photos en colonne ; nom, crochet et fil
-  pré-remplis
+  dans l'ordre de lecture même en plusieurs colonnes, sans les en-têtes / pieds de page répétés ; nom
+  (métadonnées, grand titre ou nom du fichier), crochet et fil pré-remplis ; **les photos de l'ouvrage
+  sont importées** (couverture + galerie, sans les fonds de page ni les logos)
+- **Fils à prévoir** : pour chaque couleur, son nom dans le patron, les pièces concernées, la longueur
+  (marge comprise) et le poids ; épaisseur de fil conseillée d'après le crochet (catégories 1 à 6) et
+  matière (coton, laine, chenille…)
 - **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
   ou fichier `.crochet.json`
 - **Dupliquer** un patron pour le refaire (de zéro) ou garder une version en cours (avec la progression)
@@ -61,6 +65,11 @@ Broder le nez rose, coudre deux yeux noirs.
 - Titres de pièce en casse mixte juste avant un rang 1 (`Front legs – make 2`, `Body: start at the snout`) ;
   `make 2`, `(x2)` donnent le nombre d'exemplaires
 - Répétition implicite : `3 – 1 sc, 1 inc (18)` fait le tour quand le compte annoncé le confirme
+- Comptes `= 16 sc`, `R8 - 14 (7 rnds) = 48 sc in each rnd`, plages `R14 & 15` ; couleurs par code
+  (`Use color #8008 rock corey`, `Switch to color #8001 white`, `Blanc :`) ; pièces en deux couleurs
+  (`Corps x2 (bleu, blanc)`) ; rangs repris plus loin (« Make 2 more rnds joining this part into body »)
+- Pour la 3D : tête cousue par son ouverture, museau sous les yeux et truffe au bout, plastron cousu sur
+  le ventre, pièces plates rembourrées en deux couches (raie, coussin), traits brodés
 - Notations : française (`ms`, `db`, `br`, `dbr`, `mc`, `ml`, `aug`, `dim`), US, UK et XVA
 - Répétitions `*…* x6`, `(…) x6`, `[…] x6`, `rep from * 5 more times`, « dans chaque maille », « around »
 - Comptes `(18)` vérifiés ; multi-tailles `6 (8, 10) sc` ; rangs aller-retour (`Row`, « tourner »)

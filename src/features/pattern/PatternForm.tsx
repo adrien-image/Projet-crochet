@@ -55,13 +55,26 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
     }
   }
 
-  /** Remplit le champ texte avec le texte du PDF (pdf.js n'est chargé qu'à ce moment-là). */
-  const extractFromPdf = async (blob: Blob, replace: boolean) => {
+  /**
+   * Remplit le patron avec le contenu du PDF (pdf.js n'est chargé qu'à ce moment-là) : texte, nom,
+   * crochet et fil pour les champs encore vides, et ses photos si l'ouvrage n'en a pas encore.
+   */
+  const extractFromPdf = async (blob: Blob, replace: boolean, fileName?: string | null) => {
     setBusy(t('Lecture du PDF…'))
     setError('')
     try {
-      const { extractPdfText } = await import('../../storage/pdfText')
-      const extracted = await extractPdfText(blob)
+      const { extractPdf } = await import('../../storage/pdfText')
+      const pdf = await extractPdf(blob, fileName)
+      const extracted = pdf.text
+      let imported = 0
+      if (pdf.photos.length && !photos.length) {
+        const files = pdf.photos.map((b, i) => new File([b], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }))
+        const { photos: added } = await uploadPhotos(files, 0)
+        setPhotoList((list) => (list.length ? list : added))
+        imported = added.length
+      }
+      const title = pdf.title
+      if (title) setName((cur) => cur.trim() ? cur : title)
       if (!extracted.trim()) {
         setInfo(t('Ce PDF ne contient pas de texte (document scanné ?). Recopiez les rangs à la main.'))
         return
@@ -69,13 +82,15 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       setText((cur) => (replace || !cur.trim() ? extracted : `${cur}\n\n${extracted}`))
       // nom, crochet et fil lus dans le PDF, seulement pour les champs encore vides
       const info = guessPatternInfo(extracted)
-      if (info.name) setName((cur) => cur.trim() ? cur : info.name!)
+      if (info.name && !title) setName((cur) => cur.trim() ? cur : info.name!)
       if (info.hook) setHook((cur) => cur.trim() ? cur : info.hook!)
       if (info.yarn) setYarn((cur) => cur.trim() ? cur : info.yarn!)
       const n = parsePattern(extracted).length
-      setInfo(n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
-        : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).'))
-    } catch {
+      const message = n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
+        : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).')
+      setInfo(imported ? `${message} ${tn(imported, '{n} photo importée.', '{n} photos importées.')}` : message)
+    } catch (e) {
+      console.warn(e)
       setError(t('Impossible de lire le texte de ce PDF.'))
     } finally {
       setBusy(null)
@@ -95,7 +110,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       setFile({ fileId: await putAsset(f), fileName: f.name, fileType: f.type || null, fileData: null })
       // le texte d'un fichier texte ou PDF remplit le champ s'il est vide (compteur et rendus)
       if (f.type.startsWith('text/') && !text.trim()) setText(await f.text())
-      if ((f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) && !text.trim()) await extractFromPdf(f, true)
+      if ((f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) && !text.trim()) await extractFromPdf(f, true, f.name)
     } catch {
       setError(t('Impossible d\'enregistrer ce fichier.'))
     } finally {
@@ -105,7 +120,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
 
   const extractAgain = async () => {
     const blob = file.fileId ? await getAsset(file.fileId) : null
-    if (blob) await extractFromPdf(blob, !text.trim())
+    if (blob) await extractFromPdf(blob, !text.trim(), file.fileName)
   }
 
   const submit = () => {

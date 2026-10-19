@@ -131,7 +131,7 @@ test('duplication : un patron non commencé ne propose que la copie à zéro', a
 
 test('exemple multicolore : rayures et trois fils', async ({ page }) => {
   await page.locator('.card', { hasText: 'Abeille' }).getByRole('link').click()
-  await expect(page.locator('.panel', { hasText: 'Fil nécessaire' }).locator('.yarn-list li')).toHaveCount(3)
+  await expect(page.locator('.yarn-card').locator('.yarn-list li')).toHaveCount(3)
   await expect(page.locator('.ins-round', { hasText: 'R9-R10' }).locator('.dot')).toBeVisible()
   await page.getByRole('tab', { name: '3D' }).click()
   await expect(page.locator('canvas.viewer3d-canvas')).toBeVisible({ timeout: 15_000 })
