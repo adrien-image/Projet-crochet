@@ -19,6 +19,7 @@ import { ToastView } from './ui/Toast'
 import { Dialog } from './ui/Dialog'
 import { LibraryView } from './features/library/LibraryView'
 import { StorageDialog } from './features/library/StorageDialog'
+import { StatsDialog } from './features/library/StatsDialog'
 import { PatternView, type ShareKind } from './features/pattern/PatternView'
 import { PatternForm, type PatternDraft } from './features/pattern/PatternForm'
 import { DuplicateDialog } from './features/pattern/DuplicateDialog'
@@ -47,6 +48,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
   const [route, navigate] = useHashRoute()
   const [editing, setEditing] = useState<Pattern | 'new' | null>(null)
   const [storageOpen, setStorageOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [incoming, setIncoming] = useState<Pattern | null>(null)
   const [printingIncoming, setPrintingIncoming] = useState(false)
   const [duplicating, setDuplicating] = useState<Pattern | null>(null)
@@ -98,6 +100,12 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
             if (mapped) notes[mapped] = note
           }
           next.roundNotes = notes
+          const at: Record<string, string> = {}
+          for (const [k, when] of Object.entries(p.roundsDoneAt ?? {})) {
+            const [mapped] = remapRoundKeys(before, after, [k])
+            if (mapped) at[mapped] = when
+          }
+          next.roundsDoneAt = at
         }
         return next
       })
@@ -271,6 +279,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
           onDuplicate={(id) => setDuplicating(patterns.find((p) => p.id === id) ?? null)}
           onExport={onExport} onImport={onImport} onRestoreSamples={restoreSamples} onLang={changeLang}
           onStorage={() => setStorageOpen(true)}
+          onStats={() => setStatsOpen(true)}
           reminder={{
             show: reminder,
             lastExportAt: settings.lastExportAt,
@@ -282,6 +291,7 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
         <PatternForm initial={editing === 'new' ? null : editing} onSave={savePattern} onCancel={() => setEditing(null)} />
       )}
       {duplicating && <DuplicateDialog pattern={duplicating} onDuplicate={duplicate} onCancel={() => setDuplicating(null)} />}
+      {statsOpen && <StatsDialog patterns={patterns} onClose={() => setStatsOpen(false)} />}
       {storageOpen && <StorageDialog onClose={() => setStorageOpen(false)} onExport={onExport} lastExportAt={settings.lastExportAt} />}
       {incoming && (
         <Dialog open title={t('Patron partagé')} size="sm" onClose={() => setIncoming(null)}

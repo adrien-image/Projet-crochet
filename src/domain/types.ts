@@ -96,6 +96,8 @@ export interface Pattern {
   checklist: ChecklistItem[]
   /** clés des rangs terminés */
   roundsDone: string[]
+  /** date à laquelle chaque rang a été terminé (statistiques : fil utilisé au fil du temps) */
+  roundsDoneAt?: Record<string, string>
   /** compteur de mailles du rang en cours */
   stitchCounter: number
   /** couleurs choisies par pièce (libellé de pièce → #rrggbb) */

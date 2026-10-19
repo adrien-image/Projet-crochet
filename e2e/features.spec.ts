@@ -424,6 +424,27 @@ test('saisie du patron : compte de la ligne, abréviations, rang suivant', async
   await expect(assist.locator('.ta-line')).toContainText('18 mailles calculées, 20 annoncées')
 })
 
+test('statistiques : temps, rangs, fil, par semaine et par patron', async ({ page }) => {
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('tab', { name: 'Compteur' }).click()
+  await page.getByRole('button', { name: /Rang terminé/ }).click()
+  await page.getByRole('button', { name: /Rang terminé/ }).click()
+  await page.getByRole('button', { name: 'Bibliothèque' }).click()
+  await page.getByRole('button', { name: 'Sauvegarde et options' }).click()
+  await page.getByRole('menuitem', { name: 'Statistiques' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Statistiques' })
+  await expect(dialog.locator('.stat-tile').nth(1)).toContainText('9')
+  await expect(dialog.locator('.stats-patterns tbody tr').first()).toContainText('9 / 30')
+  // les deux rangs cochés aujourd'hui tombent dans la semaine en cours
+  await dialog.getByRole('radio', { name: 'Rangs' }).click()
+  await expect(dialog.locator('.wc-bar')).toHaveCount(1)
+  await dialog.locator('.week-chart g[tabindex]').last().hover()
+  await expect(dialog.locator('.wc-tip')).toContainText('2')
+  await dialog.getByText('Voir les données').click()
+  await expect(dialog.locator('.stats-table tbody tr')).toHaveCount(12)
+})
+
 test('3D : placement manuel d\'une oreille, symétrique, réinitialisation', async ({ page }) => {
   await home(page)
   await openMouse(page)

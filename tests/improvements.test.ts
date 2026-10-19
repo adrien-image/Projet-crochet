@@ -9,6 +9,8 @@ import { buildModel, modelExtent } from '../src/render3d/model'
 import { patternLanguage } from '../src/domain/language'
 import { voiceCommands } from '../src/domain/voice'
 import { patternMarkdown } from '../src/features/pattern/markdown'
+import { libraryStats } from '../src/domain/stats'
+import { setRoundsDone } from '../src/features/pattern/actions'
 import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
 import { lineAt, nextRoundPrefix, suggestions, wordBefore } from '../src/features/pattern/typingHelp'
@@ -180,4 +182,29 @@ test('export Markdown : titre, fils, étapes, rangs cochés, notes', () => {
   expect(md).toContain('- [x] R1 : 6 ms dans un anneau magique (6)')
   expect(md).toContain('- [ ] R2 : 6 aug (12) — *serrer*')
   expect(md).toContain('- [ ] R4-R6 : 18 ms (18)')
+})
+
+test('statistiques : temps par semaine, rythme, fil utilisé au fil du temps', () => {
+  const now = Date.parse('2026-10-15T12:00:00')
+  const base = normalizePattern({ name: 'Balle', hook: '3 mm', text: ball })
+  const rounds = parsePattern(base.text)
+  let p = { ...base, timeSpent: 7200, sessions: [{ start: '2026-10-13T10:00:00', seconds: 3600 }, { start: '2026-09-01T10:00:00', seconds: 3600 }] }
+  p = setRoundsDone(p, rounds.slice(0, 3).map((r) => r.key), true, Date.parse('2026-10-13T11:00:00'))
+  p = setRoundsDone(p, [rounds[3].key], true, Date.parse('2026-10-06T11:00:00'))
+  const untouched = normalizePattern({ name: 'Pas commencé', text: ball })
+  const s = libraryStats([untouched, p], now)
+  expect(s.weeks).toHaveLength(12)
+  expect(s.weeks[11].week).toBe('2026-10-12')
+  expect(s.weeks[11].seconds).toBe(3600)
+  expect(s.weeks[11].rounds).toBe(3)
+  expect(s.weeks[10].rounds).toBe(1)
+  expect(s.weeks[11].meters).toBeGreaterThan(0)
+  expect(s.roundsDone).toBe(4)
+  expect(s.inProgress).toBe(1)
+  expect(s.patterns[0].name).toBe('Balle')
+  expect(s.patterns[0].perHour).toBe(2)
+  expect(s.metersUsed).toBeCloseTo(s.patterns[0].metersUsed)
+  expect(s.patterns[0].metersUsed).toBeLessThan(s.patterns[0].meters)
+  // décocher un rang efface sa date
+  expect(setRoundsDone(p, [rounds[0].key], false).roundsDoneAt?.[rounds[0].key]).toBeUndefined()
 })
