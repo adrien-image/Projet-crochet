@@ -32,7 +32,9 @@ fonctionne hors connexion.
   avec correction des erreurs de lecture courantes (« | aug » pour « 1 aug », « R3% » pour « R34 »,
   numéros de rang illisibles déduits de la suite) ; un scan espagnol, allemand, italien, portugais ou
   néerlandais est relu dans sa langue ; bouton « Lire par OCR » pour un PDF dont le texte extrait est
-  illisible ;
+  illisible ; texte illisible (police sans table de caractères) détecté et lu par OCR ; rangs coupés
+  sur plusieurs lignes recollés ; renvois aux photos (« [3] ») retirés ; tableau de comptes d'un patron
+  en diagramme (« round # | stitch count ») changé en rangs ;
   **écran de vérification** : les pages du PDF à côté des lignes reconnues, rangs dont le compte ne
   tombe pas juste signalés, chaque ligne corrigeable sur place et surlignée sur sa page
 - **Fils à prévoir** : pour chaque couleur, son nom dans le patron, les pièces concernées, la longueur
@@ -82,6 +84,10 @@ Broder le nez rose, coudre deux yeux noirs.
   portugais (`pbx`), allemand (`fM`, `zun`, `abn`, `Runde`), italien (`mb`, `aum`, `dim`, `giro`) et
   néerlandais (`v`, `meerd`, `mind`, `toer`) ; **tableaux** `Rang | Instructions | Mailles` (cellules
   séparées par des tabulations, des `|` ou, dans un PDF, par leur position)
+- Style fabricant : `1st rnd: Ch 1. 2 sc in each sc around. Join. 20 sc.`, `6th to 13th rnds: As 4th rnd.`,
+  `2 sc in next sc`, `1 sc in each of next 2 sc`, `Join MC with sl st to first sc` ; style blog :
+  `(1 sc in next sc, 2 sc in next st) 2 times (6 st)`, `sc 2 around (12 sc)` ; rangs numérotés `1. … [10 Dc,
+  2 Picots]`, picots, `Ch 3 (counts as a dc)`, rangs sur une chaînette de base (« from hook »)
 - Préfixes : `R`, `Rang`, `Tour`, `Rnd`, `Round`, `Row` ; plages `R4-R6`, `Rangs 4 à 6` ; ou rangs
   numérotés sans préfixe, courants dans les PDF : `1 – 6 sc into a magic ring (6)`, `4 to 7 – 18 sc`,
   `18 and 19 – 18 sc (2 rows) – stuff the head`

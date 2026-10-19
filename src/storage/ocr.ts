@@ -16,6 +16,9 @@ export interface Ocr {
  * incertains sont gardés : sans eux le rang est faux (« R2: 8 inc = 16 sc » devient « R2: = 16 sc »).
  */
 const MIN_CONFIDENCE = 20
+const JUNK_LINE_CONFIDENCE = 60
+/** ligne illisible (traits d'un diagramme, motif) : écartée même avec des chiffres */
+const UNREADABLE_LINE_CONFIDENCE = 35
 const USEFUL_RE = /\d|^[=|(),:–—-]+$|^(?:sc|inc|dec|ms|aug|dim|ch|mc|ml|dc|hdc|tr|sl|st|rnds?|rows?|in|each|x\d*)[,.)]?$/i
 
 /** Langues lues par défaut ; les autres (espagnol, allemand…) sont chargées si le patron est écrit ainsi. */
@@ -40,6 +43,8 @@ export async function createOcr(onProgress?: (progress: number) => void, languag
       for (const block of data.blocks ?? []) {
         for (const paragraph of block.paragraphs) {
           for (const line of paragraph.lines) {
+            // ligne lue dans une photo (« TA Cat », « CL ») : incertaine, sans nombre ni maille
+            if (line.confidence < UNREADABLE_LINE_CONFIDENCE || (line.confidence < JUNK_LINE_CONFIDENCE && !line.words.some((w) => USEFUL_RE.test(w.text)))) continue
             // tous les mots d'une ligne sur sa ligne de base (les lettres hautes ou basses varient) ; mais
             // une « ligne » haute comme deux est faite de deux lignes serrées : chaque mot garde sa place
             const heights = line.words.map((w) => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b)
