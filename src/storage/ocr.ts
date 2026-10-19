@@ -31,11 +31,15 @@ export async function createOcr(onProgress?: (progress: number) => void): Promis
       for (const block of data.blocks ?? []) {
         for (const paragraph of block.paragraphs) {
           for (const line of paragraph.lines) {
-            // tous les mots d'une ligne sur la même ligne de base (les lettres hautes ou basses varient)
-            const y = (canvas.height - line.bbox.y1) / scale
-            const h = ((line.bbox.y1 - line.bbox.y0) / scale) * 0.8
+            // tous les mots d'une ligne sur sa ligne de base (les lettres hautes ou basses varient) ; mais
+            // une « ligne » haute comme deux est faite de deux lignes serrées : chaque mot garde sa place
+            const heights = line.words.map((w) => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b)
+            const word = heights[heights.length >> 1] ?? line.bbox.y1 - line.bbox.y0
+            const merged = line.bbox.y1 - line.bbox.y0 > heights[heights.length - 1] * 1.6
+            const h = (merged ? word : line.bbox.y1 - line.bbox.y0) * 0.8 / scale
             for (const w of line.words) {
               if (w.confidence < MIN_CONFIDENCE || !w.text.trim()) continue
+              const y = (canvas.height - (merged ? w.bbox.y1 : line.bbox.y1)) / scale
               pieces.push({ s: w.text, x: w.bbox.x0 / scale, y, w: (w.bbox.x1 - w.bbox.x0) / scale, h })
             }
           }

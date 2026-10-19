@@ -415,6 +415,9 @@ function tableLine(line: string): string {
   return [cells[0], ...cells.slice(1).filter((c) => STITCH_HINT_RE.test(c))].join(' ')
 }
 
+/** rang sans préfixe manquant toléré dans une suite (« 21 – … » puis « 23 – … ») */
+const BARE_GAP = 1
+
 /** Classe chaque ligne du texte : rang, titre de pièce ou texte libre. */
 function scanLines(text: string | null | undefined): ScannedLine[] {
   const out: ScannedLine[] = []
@@ -434,7 +437,8 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
     if (bm && STITCH_HINT_RE.test(bm[3])) {
       const from = parseInt(bm[1], 10)
       const to = bm[2] != null ? parseInt(bm[2], 10) : null
-      if (from === 1 || from === bareNext) {
+      // un rang illisible (OCR, ligne perdue) n'interrompt pas la suite
+      if (from === 1 || (bareNext != null && from >= bareNext && from <= bareNext + BARE_GAP)) {
         out.push({ kind: 'round', line, index, round: { word: '', from, to, instruction: bm[3] } })
         bareNext = (to ?? from) + 1
         continue

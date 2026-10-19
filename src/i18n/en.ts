@@ -384,6 +384,9 @@ const en: Record<string, string> = {
   "Imprimer le patron (ou PDF)": "Print the pattern (or PDF)",
   "Diagrammes": "Charts",
   "Imprimé depuis Mon Crochet": "Printed from Mon Crochet",
+  "Lire par OCR": "Read with OCR",
+  "Pour un PDF dont le texte extrait est illisible : chaque page est lue comme une image.": "For a PDF whose extracted text is unreadable: each page is read as an image.",
+  "Texte lu par reconnaissance de caractères.": "Text read by character recognition.",
 }
 
 export default en

@@ -206,6 +206,7 @@ test('PDF : le texte d\'un PDF joint remplit le patron', async ({ page }) => {
   await expect(dialog.getByLabel('Texte du patron')).toHaveValue(/R2 : aug dans chaque maille \(12\)/)
   await expect(dialog.getByLabel('Texte du patron')).not.toHaveValue(/^3$/m)
   await expect(dialog.getByRole('button', { name: 'Extraire le texte' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Lire par OCR' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.locator('.ins-round')).toHaveCount(3)
 })
