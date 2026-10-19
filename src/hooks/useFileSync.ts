@@ -27,21 +27,23 @@ export function useFileSync(
   const handle = useRef<Handle | null>(null)
   const latest = useRef({ patterns, deleted: settings.deleted })
   useEffect(() => { latest.current = { patterns, deleted: settings.deleted } })
-  const skipWrite = useRef(false)
 
+  /** Lit le fichier et fusionne ; renvoie la bibliothèque fusionnée (pour l'écriture qui suit). */
   const pull = useCallback(async (h: Handle) => {
     const remote = await readSyncFile(h)
-    if (!remote) return
-    const merged = mergeLibraries(latest.current.patterns, remote.patterns, latest.current.deleted, remote.deleted)
-    if (merged.changed) {
-      skipWrite.current = false
-      setPatterns(merged.patterns)
-    }
-    updateSettings((s) => ({ ...s, deleted: merged.deleted }))
+    if (!remote) return null
+    // l'état est fusionné tel qu'il est au moment d'appliquer : une modification faite pendant la
+    // lecture du fichier (qui enregistre aussi ses photos) n'est pas écrasée
+    setPatterns((current) => {
+      const merged = mergeLibraries(current, remote.patterns, latest.current.deleted, remote.deleted)
+      return merged.changed ? merged.patterns : current
+    })
+    updateSettings((s) => ({ ...s, deleted: mergeLibraries([], [], s.deleted, remote.deleted).deleted }))
+    return mergeLibraries(latest.current.patterns, remote.patterns, latest.current.deleted, remote.deleted)
   }, [setPatterns, updateSettings])
 
-  const push = useCallback(async (h: Handle) => {
-    await writeSyncFile(h, latest.current.patterns, latest.current.deleted)
+  const push = useCallback(async (h: Handle, data = latest.current) => {
+    await writeSyncFile(h, data.patterns, data.deleted)
     setLastSyncAt(new Date().toISOString())
   }, [])
 
@@ -52,8 +54,8 @@ export function useFileSync(
     }
     setStatus('syncing')
     try {
-      await pull(h)
-      await push(h)
+      // les modifications faites entre-temps partent avec l'écriture regroupée suivante
+      await push(h, (await pull(h)) ?? latest.current)
       setStatus('synced')
     } catch {
       setStatus('error')
@@ -76,10 +78,6 @@ export function useFileSync(
   // écriture regroupée après chaque modification
   useEffect(() => {
     if (status !== 'synced' || !handle.current) return
-    if (skipWrite.current) {
-      skipWrite.current = false
-      return
-    }
     const h = handle.current
     const t = setTimeout(() => { push(h).catch(() => setStatus('error')) }, WRITE_DELAY)
     return () => clearTimeout(t)
@@ -94,7 +92,8 @@ export function useFileSync(
   }, [status, pull])
 
   const link = useCallback(async () => {
-    const h = await chooseSyncFile()
+    // choix annulé (AbortError) ou refusé par le navigateur : rien à faire
+    const h = await chooseSyncFile().catch(() => null)
     if (!h) return
     handle.current = h
     setFileName(h.name)

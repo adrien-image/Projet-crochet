@@ -1,8 +1,54 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import type { Plugin } from 'vite'
+
+// Politique de sécurité du contenu (GitHub Pages n'envoie pas d'en-têtes : balise <meta>). Tout est
+// servi par l'application ; les photos et fichiers sont affichés en blob: / data:. Seulement au build :
+// le serveur de développement injecte des scripts en ligne.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  // attributs style="" (couleurs calculées) : pas de feuille de style externe
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+  // aperçu du PDF joint
+  "frame-src blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+  "manifest-src 'self'",
+].join('; ')
+
+const csp = (): Plugin => ({
+  name: 'csp',
+  apply: 'build',
+  transformIndexHtml: (html) => html.replace('<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`),
+})
+
+// Service worker généré avec la liste de tous les fichiers du build (même ceux chargés à la demande)
+// et une version qui change à chaque build : le navigateur installe la nouvelle version, l'ancienne
+// est libérée.
+const PUBLIC_FILES = ['manifest.webmanifest', 'favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png']
+const serviceWorker = (): Plugin => ({
+  name: 'service-worker',
+  apply: 'build',
+  generateBundle(_, bundle) {
+    const files = [...Object.keys(bundle).filter((f) => f !== 'index.html' && !f.endsWith('.map')), ...PUBLIC_FILES].sort()
+    const version = createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 12)
+    const source = readFileSync(new URL('./src/sw/sw.template.js', import.meta.url), 'utf8')
+      .replace('__SW_VERSION__', version)
+      .replace('/* __SW_ASSETS__ */ []', JSON.stringify(files))
+    this.emitFile({ type: 'asset', fileName: 'sw.js', source })
+  },
+})
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), csp(), serviceWorker()],
   base: '/Projet-crochet/',
   build: {
     // three.js (≈575 ko) est isolé dans son propre fichier, chargé à la demande

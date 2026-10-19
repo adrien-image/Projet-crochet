@@ -5,6 +5,7 @@
 //    ou présentées côte à côte.
 import type { Round, StitchType } from '../domain/types'
 import { rowsFor, type CordPiece, type Details, type Piece } from '../domain/pieces'
+import { DEFAULT_YARN } from '../domain/colors'
 
 export type Vec3 = [number, number, number]
 
@@ -33,7 +34,8 @@ export interface Ring {
 
 export type Part =
   | { kind: 'lathe', id: string, label: string, color: string, rings: Ring[], open: boolean, transform: Transform }
-  | { kind: 'panel', id: string, label: string, color: string, rows: { w: number, y: number, count: number, color: string | null }[], transform: Transform }
+  /** curve : rayon autour duquel le panneau est courbé (pièce plate cousue sur un corps) ; puff : coussin rembourré */
+  | { kind: 'panel', id: string, label: string, color: string, rows: { w: number, y: number, count: number, color: string | null }[], transform: Transform, curve?: number, puff?: { top: string, bottom: string, thickness: number } }
   | { kind: 'cord', id: string, label: string, color: string, points: Vec3[], radius: number, stitches: number }
   | { kind: 'bead', id: string, label: string, color: string, radius: number, position: Vec3, glossy: boolean, squash: number }
 
@@ -269,7 +271,7 @@ export function buildModel(pieces: Piece[], cords: CordPiece[], details: Details
   const complete = budget > 0 || upTo === Infinity
 
   if (options.assembled && complete) {
-    const assembled = assemble(built, cords, details, options.placements ?? {})
+    const assembled = assembleLayered(built, cords, details) ?? assemble(built, cords, details, options.placements ?? {})
     if (assembled) return withBounds(assembled.parts, assembled.mainLabel, built)
   }
   return withBounds(layoutSideBySide(built, complete ? cords : []), undefined, [])
@@ -423,6 +425,111 @@ const ASSEMBLY: Record<'forward' | 'upright', Partial<Record<PieceKind, Spot>>> 
   },
 }
 
+type PanelRow = { w: number, y: number, count: number, color: string | null }
+
+/**
+ * Épaisseur d'un coussin (deux panneaux cousus et rembourrés) au point (x, y) du panneau : nulle sur
+ * le contour, arrondie près des bords, maximale au centre.
+ */
+export function cushionHeight(rows: PanelRow[], thickness: number, x: number, y: number): number {
+  const y0 = rows[0].y
+  const y1 = rows[rows.length - 1].y
+  if (y < y0 || y > y1) return 0
+  let i = 1
+  while (i < rows.length - 1 && rows[i].y < y) i++
+  const a = rows[i - 1]
+  const b = rows[i]
+  const w = a.w + (b.w - a.w) * ((y - a.y) / ((b.y - a.y) || 1))
+  const d = Math.min(w / 2 - Math.abs(x), y - y0 + 0.6, y1 - y + 0.6)
+  if (d <= 0) return 0
+  // bord arrondi qui s'adoucit vers le centre (pas une dalle à bords droits)
+  const f = Math.min(1, d / (thickness * 2.8))
+  return thickness * (0.12 + 0.88 * (1 - (1 - f) * (1 - f)))
+}
+
+const cushionThickness = (rows: PanelRow[]) => Math.min(4.5, Math.max(1, Math.max(...rows.map((r) => r.w)) * 0.045))
+
+/**
+ * Pièces plates en deux couches (« Corps x2 (bleu, blanc) », « Positionne le corps bleu sur le corps
+ * blanc », rembourrées) : une raie, un coussin plat… Le corps est posé à plat, la tête continue son
+ * dernier rang, la queue part de la pointe, les antennes des coins de la tête.
+ */
+function assembleLayered(
+  items: { b: Built | null, panel: Part | null, piece: Piece }[],
+  cords: CordPiece[],
+  details: Details,
+): { parts: Part[], mainLabel: string } | null {
+  type Layered = { b: Built | null, panel: Extract<Part, { kind: 'panel' }>, piece: Piece }
+  const flat = items.filter((i): i is Layered => i.panel?.kind === 'panel')
+  const layered = flat.filter((i) => i.piece.copies === 2 && i.piece.copyColors?.length === 2)
+  if (!layered.length || !details.stuffed || items.some((i) => i.b)) return null
+  const area = (i: Layered) => i.panel.rows.reduce((n, r) => n + r.w, 0)
+  const main = layered.reduce((a, b) => (area(b) > area(a) ? b : a))
+  const parts: Part[] = []
+  // panneau couché : ses rangs vers l'avant (+z, face à la caméra), son épaisseur vers le haut
+  const flatRot: Vec3 = [-Math.PI / 2, 0, Math.PI]
+  // la tête (pièce plate crochetée à partir du dernier rang du corps, rembourrée avec lui) prolonge
+  // son contour : un seul coussin, sans couture visible
+  const rows: PanelRow[] = main.panel.rows.map((r) => ({ ...r }))
+  const bodyLast = rows[rows.length - 1].y
+  let head: { from: number, to: number, w: number } | null = null
+  for (const i of flat) {
+    if (i === main) continue
+    const shift = rows[rows.length - 1].y + 0.9
+    for (const r of i.panel.rows) rows.push({ ...r, y: r.y + shift })
+    if (!head) head = { from: shift, to: rows[rows.length - 1].y, w: Math.max(...i.panel.rows.map((r) => r.w)) }
+  }
+  const th = cushionThickness(rows)
+  const [topColor, bottomColor] = main.piece.copyColors ?? [main.piece.color, main.piece.color]
+  parts.push({ ...main.panel, rows, id: nextId('panel'), puff: { top: topColor, bottom: bottomColor, thickness: th }, transform: { position: [0, th, 0], rotation: flatRot, scale: [1, 1, 1] } })
+  const body = { th, last: bodyLast }
+  // dessus du coussin au point (x, rang) du panneau, en coordonnées du modèle (panneau retourné)
+  const surface = (x: number, y: number, lift = 0): Vec3 => [-x, th + cushionHeight(rows, th, x, y) + lift, y]
+  const front = head ? { z: head.to, w: head.w, mid: (head.from + head.to) / 2 } : { z: bodyLast, w: Math.max(...rows.map((r) => r.w)), mid: bodyLast * 0.85 }
+  for (const cord of cords) {
+    const len = cord.length * CHAIN_LENGTH
+    const n = 24
+    const antenna = /\b(?:antenn|corne|horn|tentac|barbill|cephal)/i.test(cord.label)
+    const ends = antenna ? [-1, 1].slice(0, Math.max(2, cord.copies)) : [0]
+    for (const side of ends) {
+      const points: Vec3[] = []
+      for (let k = 0; k <= n; k++) {
+        const s = k / n
+        points.push(antenna
+          // antennes : partent des coins avant de la tête et s'enroulent vers l'intérieur
+          ? [side * (front.w / 2 - 0.6 - Math.sin(s * Math.PI * 0.9) * len * 0.25), th * 0.6 + s * 0.4, front.z + s * len * 0.8]
+          // queue : part de la pointe arrière et ondule sur le sol
+          : [Math.sin(s * Math.PI * 1.6) * len * 0.07, Math.max(0.4, body.th * 0.5 * (1 - s * 2)), -0.6 - s * len])
+      }
+      parts.push({ kind: 'cord', id: nextId('cord'), label: cord.label, color: cord.color === DEFAULT_YARN ? main.piece.color : cord.color, points, radius: antenna ? 0.45 : 0.6, stitches: cord.length })
+    }
+  }
+  // yeux en feutrine sur les côtés de la tête
+  if (details.eyes) {
+    for (const side of [-1, 1]) {
+      const x = side * Math.max(1, front.w / 2 - 3)
+      parts.push({ kind: 'bead', id: nextId('eye'), label: 'Yeux', color: details.eyes.color, radius: 1.2, position: surface(x, front.mid, 0.05), glossy: false, squash: 0.35 })
+    }
+  }
+  // traits brodés sur le dessus du corps, répartis de façon régulière mais pas alignée
+  if (details.stripes) {
+    for (let k = 0; k < 40; k++) {
+      const v = ((k * 0.618) % 1) * 0.85 + 0.1
+      const y = rows[0].y + v * (body.last - rows[0].y)
+      const w = rows.find((r) => r.y >= y)?.w ?? 1
+      const x = (((k * 0.414) % 1) - 0.5) * w * 0.8
+      const h = cushionHeight(rows, body.th, x, y)
+      if (h < body.th * 0.3) continue
+      const a = (k * 2.4) % Math.PI
+      // le panneau est retourné (rotation de 180° autour de son axe) : x et les rangs changent de signe
+      const p = surface(x, y, 0.05)
+      parts.push({ kind: 'cord', id: nextId('cord'), label: 'Broderie', color: details.stripes.color, radius: 0.22, stitches: 3,
+        points: [[p[0] - Math.cos(a) * 1.1, p[1], p[2] - Math.sin(a) * 1.1], p, [p[0] + Math.cos(a) * 1.1, p[1], p[2] + Math.sin(a) * 1.1]] })
+    }
+  }
+  return { parts, mainLabel: main.piece.label }
+}
+
 function assemble(
   items: { b: Built | null, panel: Part | null, piece: Piece }[],
   cords: CordPiece[],
@@ -468,15 +575,11 @@ function assemble(
     used.add(b)
   }
 
-  // une pièce ouverte (oreille, bras) se coud par son ouverture : axe retourné vers la surface,
-  // l'ouverture (fin de la pièce) vient se poser sur `at` ; une pièce fermée part de la surface
+  // une pièce annexe se coud par son dernier rang (ouverture d'une oreille, fin fermée d'un bras ou
+  // d'une queue) : axe retourné vers la surface, le rang 1 (main, pied, bout de la queue) reste libre
   const sew = (b: Built, at: Vec3, n: Vec3, sink: number) => {
-    if (b.piece.open) {
-      const end = b.rings[b.rings.length - 1].y
-      attach(b, [at[0] + n[0] * end, at[1] + n[1] * end, at[2] + n[2] * end], [-n[0], -n[1], -n[2]], -sink)
-    } else {
-      attach(b, at, n, sink)
-    }
+    const end = b.rings[b.rings.length - 1].y
+    attach(b, [at[0] + n[0] * end, at[1] + n[1] * end, at[2] + n[2] * end], [-n[0], -n[1], -n[2]], -sink)
   }
 
   // placements manuels d'abord ; un 2e exemplaire non placé est posé en symétrique du 1er
@@ -509,34 +612,51 @@ function assemble(
     })
   }
 
-  // tête séparée posée sur le corps : les oreilles et le visage vont sur la tête
+  // tête séparée posée sur le corps : les oreilles et le visage vont sur la tête. Une tête qui finit
+  // ouverte (« Sew head onto body with 24 sts ») est cousue par son ouverture : elle est retournée.
   const head = lathes.find((i) => !used.has(i.b) && kinds.get(i.b) === 'head' && i.piece.copies === 1)
+  let headFlipped = false
   if (head && kinds.get(main.b) === 'body' && mode === 'up') {
     const top = mainFrame.point(1, 0)
-    const lift = head.b.maxR * 0.85
-    parts.push(lathePart(head.b, { position: [0, top[1] + lift - head.b.rings[0].y - head.b.length / 2, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }))
+    if (head.b.open) {
+      headFlipped = true
+      const end = head.b.rings[head.b.rings.length - 1].y
+      const pos: Vec3 = [0, top[1] + end - 0.6, 0]
+      parts.push(lathePart(head.b, { position: pos, rotation: [Math.PI, 0, 0], scale: [1, 1, 1] }))
+      frame = makeFrame(head.b, 'down', pos)
+    } else {
+      const lift = head.b.maxR * 0.85
+      parts.push(lathePart(head.b, { position: [0, top[1] + lift - head.b.rings[0].y - head.b.length / 2, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }))
+      frame = makeFrame(head.b, 'up', [0, top[1] + lift - head.b.length / 2 - head.b.rings[0].y, 0])
+    }
     used.add(head.b)
-    frame = makeFrame(head.b, 'up', [0, top[1] + lift - head.b.length / 2 - head.b.rings[0].y, 0])
   }
   const faceFrame = frame
+  const faceBuilt = faceFrame !== mainFrame && head ? head.b : main.b
+  // position le long de la tête retournée : les repères « en haut de la tête » s'inversent
+  const onFace = (t: number) => (headFlipped ? 1 - t : t)
 
-  // rang cité dans les consignes (« between rows 21 and 22 ») → position le long de la pièce principale
-  const rowT = (row: number): number | null => {
+  // rang cité dans les consignes (« between rows 21 and 22 », « Sew ears between R3 and 10 of head »)
+  // → position le long de la pièce concernée
+  const rowT = (b: Built, row: number): number | null => {
     const base = Math.floor(row)
-    const i = main.piece.rounds.findIndex((r) => r.number === base)
-    const a = i < 0 ? undefined : main.b.rings.find((g) => g.row === i)
+    const i = b.piece.rounds.findIndex((r) => r.number === base)
+    const a = i < 0 ? undefined : b.rings.find((g) => g.row === i)
     if (!a) return null
-    const b = main.b.rings.find((g) => g.row === i + 1) ?? a
-    const y = a.y + (b.y - a.y) * (row - base)
-    return Math.min(0.98, Math.max(0.02, (y - main.b.rings[0].y) / (main.b.length || 1)))
+    const c = b.rings.find((g) => g.row === i + 1) ?? a
+    const y = a.y + (c.y - a.y) * (row - base)
+    return Math.min(0.98, Math.max(0.02, (y - b.rings[0].y) / (b.length || 1)))
   }
-  const hintedT = (label: string, want = 1) => rowsFor(label, details.rows, want).map(rowT).filter((t): t is number => t != null)
+  const hintedT = (label: string, want = 1, b: Built = main.b) => rowsFor(label, details.rows, want).map((r) => rowT(b, r)).filter((t): t is number => t != null)
 
   // positions des pièces annexes, selon le type et l'orientation
   const spots = ASSEMBLY[mode === 'forward' ? 'forward' : 'upright']
   // piquants, écailles : sans indication de rang, répartis régulièrement le long du dos
   const spikeTotal = lathes.filter((i) => !used.has(i.b) && kinds.get(i.b) === 'spike').reduce((n, i) => n + i.piece.copies, 0)
   let spikeIndex = 0
+  // bout du museau (pour la truffe)
+  let muzzleTip: { at: Vec3, n: Vec3, base: Vec3, r: number } | null = null
+  const earsPlaced = new Set<string>()
 
   for (const i of lathes) {
     if (used.has(i.b)) continue
@@ -544,8 +664,9 @@ function assemble(
     const spot = spots[kind]
     if (!spot) continue
     const f = spot.onHead ? faceFrame : mainFrame
+    const fb = spot.onHead ? faceBuilt : main.b
     // un rang par exemplaire pour les piquants, un seul pour une paire symétrique
-    const hinted = f === mainFrame ? hintedT(i.piece.label, kind === 'spike' ? i.piece.copies : 1) : []
+    const hinted = hintedT(i.piece.label, kind === 'spike' ? i.piece.copies : 1, fb)
     if (kind === 'spike') {
       for (let c = 0; c < i.piece.copies; c++) {
         const t = hinted[c] ?? 0.3 + 0.45 * (spikeTotal > 1 ? spikeIndex / (spikeTotal - 1) : 0.5)
@@ -555,18 +676,65 @@ function assemble(
       used.add(i.b)
       continue
     }
-    const t = hinted[0] ?? spot.t
+    // l'intérieur d'oreille (« White part of ears ») se pose devant l'oreille déjà placée
+    const lining = kind === 'ear' && earsPlaced.size > 0
+    // museau « between eyes » : juste sous les yeux quand leur rang est donné
+    const eyeT = kind === 'muzzle' ? [...hintedT('eyes', 1, faceBuilt), ...hintedT('yeux', 1, faceBuilt)][0] : undefined
+    const t = hinted[0] ?? (eyeT != null ? Math.min(0.95, Math.max(0.05, eyeT + (headFlipped ? 0.14 : -0.14))) : spot.onHead ? onFace(spot.t) : spot.t)
     for (let c = 0; c < Math.min(i.piece.copies, spot.angles.length); c++) {
-      const angle = spot.angles[c]
+      const angle = spot.angles[c] * (lining ? 0.92 : 1)
       let n = f.normal(t, angle)
       if (kind === 'leg' && mode === 'up') n = [n[0] * 0.5, -1, n[2] * 0.5]
-      sew(i.b, f.point(t, angle), n, spot.sink)
+      // bras le long du corps, légèrement vers l'avant
+      if (kind === 'arm' && mode === 'up') n = norm([n[0] * 0.6, -0.8, n[2] * 0.6 + 0.2])
+      if (lining) n = norm([n[0], n[1], n[2] + 0.35])
+      const at = f.point(t, angle, lining ? 0.35 : 0)
+      sew(i.b, at, n, spot.sink)
+      if (kind === 'muzzle') {
+        const len = i.b.rings[i.b.rings.length - 1].y - i.b.rings[0].y
+        muzzleTip = { at: [at[0] + n[0] * len, at[1] + n[1] * len, at[2] + n[2] * len], n, base: at, r: i.b.maxR }
+      }
     }
+    if (kind === 'ear') earsPlaced.add(i.piece.label)
     used.add(i.b)
   }
 
+  // pièces plates cousues sur le corps : plastron (« White spot on chest »), dessus du museau…
+  const patched = new Set<Piece>()
+  for (const i of items) {
+    if (!i.panel || i.panel.kind !== 'panel') continue
+    const label = i.piece.label
+    const onChest = /\b(?:chest|belly|tummy|collar|bib|ventre|poitrine|plastron|bavoir|col)\b/i.test(label)
+    const onNose = /\b(?:nose|snout|muzzle|museau|nez)\b/i.test(label)
+    if (!onChest && !onNose) continue
+    const h = Math.max(...i.panel.rows.map((r) => r.y))
+    const tip = muzzleTip as { at: Vec3, n: Vec3, base: Vec3, r: number } | null
+    let at: Vec3
+    let n: Vec3
+    let radius: number
+    if (onNose && tip) {
+      // sur le dessus du museau, à mi-longueur, tourné vers le haut
+      const mid: Vec3 = [(tip.base[0] + tip.at[0]) / 2, (tip.base[1] + tip.at[1]) / 2, (tip.base[2] + tip.at[2]) / 2]
+      at = [mid[0], mid[1] + tip.r * 0.8, mid[2] - h * 0.35]
+      n = norm([tip.n[0] * 0.5, 1, tip.n[2] * 0.5])
+      radius = tip.r
+    } else {
+      const f = onNose ? faceFrame : mainFrame
+      const t = onNose ? onFace(0.42) : 0.78
+      at = f.point(t, 0, 0.2)
+      n = f.normal(t, 0)
+      radius = radiusAt(onNose ? faceBuilt : main.b, t)
+      if (!onNose) at = [at[0], at[1] - h * 0.55, at[2]]
+    }
+    // le panneau (plan x-y, normale +z) face à l'extérieur, ses rangs vers le haut, courbé autour de la pièce
+    const tilt = -Math.atan2(n[1], Math.hypot(n[0], n[2]))
+    const yaw = Math.atan2(n[0], n[2])
+    parts.push({ ...i.panel, rows: i.panel.rows.map((r) => ({ ...r })), curve: Math.max(2, radius + 0.2), id: nextId('panel'), transform: { position: at, rotation: [tilt, yaw, 0], scale: [1, 1, 1] } })
+    patched.add(i.piece)
+  }
+
   // pièces non placées : à côté
-  const leftovers = items.filter((i) => (i.b ? !used.has(i.b) : true))
+  const leftovers = items.filter((i) => (i.b ? !used.has(i.b) : !patched.has(i.piece)))
   const mainSpan = main.b.maxR
   const side = layoutSideBySide(leftovers, [])
   const sideShift: Vec3 = [mainSpan * 2 + 6, 0, 0]
@@ -591,23 +759,30 @@ function assemble(
       p = [p[0] + dir[0] * step, Math.max(floor, p[1] + dir[1] * step), p[2] + dir[2] * step]
       points.push(p)
     }
-    parts.push({ kind: 'cord', id: nextId('cord'), label: cord.label, color: cord.color, points, radius: 0.3, stitches: cord.length })
+    // chaînette sans couleur indiquée : du fil de la pièce principale
+    parts.push({ kind: 'cord', id: nextId('cord'), label: cord.label, color: cord.color === DEFAULT_YARN ? main.piece.color : cord.color, points, radius: 0.3, stitches: cord.length })
   }
 
   // yeux et nez
   if (details.eyes) {
-    const hinted = faceFrame === mainFrame ? [...hintedT('eyes'), ...hintedT('yeux')][0] : undefined
-    const t = hinted ?? (mode === 'forward' ? 0.2 : 0.58)
-    const spread = mode === 'forward' ? Math.PI * 0.32 : Math.PI * 0.2
+    const hinted = [...hintedT('eyes', 1, faceBuilt), ...hintedT('yeux', 1, faceBuilt)][0]
+    const t = hinted ?? (mode === 'forward' ? 0.2 : onFace(0.58))
+    // « 8 sc apart » : écart en mailles sur le tour où sont posés les yeux
+    const ring = faceBuilt.rings[Math.round(t * (faceBuilt.rings.length - 1))]
+    const spread = details.eyes.gap && ring?.count ? Math.min(Math.PI * 0.45, Math.PI * (details.eyes.gap + 1) / ring.count)
+      : mode === 'forward' ? Math.PI * 0.32 : Math.PI * 0.2
     for (const a of [spread, -spread]) {
       const p = faceFrame.point(t, a, -0.15)
-      parts.push({ kind: 'bead', id: nextId('eye'), label: 'Yeux', color: details.eyes.color, radius: Math.max(0.55, radiusAt(faceFrame === mainFrame ? main.b : main.b, t) * 0.15), position: p, glossy: true, squash: 1 })
+      parts.push({ kind: 'bead', id: nextId('eye'), label: 'Yeux', color: details.eyes.color, radius: Math.max(0.55, radiusAt(faceBuilt, t) * 0.15), position: p, glossy: true, squash: 1 })
     }
   }
   if (details.nose) {
-    const p = mode === 'forward' ? mainFrame.point(0, 0, 0) : faceFrame.point(0.48, 0, -0.1)
-    const tip: Vec3 = mode === 'forward' ? [p[0], p[1], p[2] + 0.45] : p
-    parts.push({ kind: 'bead', id: nextId('nose'), label: 'Nez', color: details.nose.color, radius: 0.6, position: tip, glossy: false, squash: 0.8 })
+    // au bout du museau s'il y en a un (truffe de sécurité, brillante), sinon au milieu du visage
+    const tipAt = muzzleTip as { at: Vec3, n: Vec3 } | null
+    const p = tipAt ? tipAt.at : mode === 'forward' ? mainFrame.point(0, 0, 0) : faceFrame.point(onFace(0.48), 0, -0.1)
+    const tip: Vec3 = tipAt ? [p[0] + tipAt.n[0] * 0.3, p[1] + tipAt.n[1] * 0.3, p[2] + tipAt.n[2] * 0.3]
+      : mode === 'forward' ? [p[0], p[1], p[2] + 0.45] : p
+    parts.push({ kind: 'bead', id: nextId('nose'), label: 'Nez', color: details.nose.color, radius: tipAt ? 0.9 : 0.6, position: tip, glossy: !!tipAt, squash: 0.8 })
   }
   return { parts, mainLabel: main.piece.label }
 }

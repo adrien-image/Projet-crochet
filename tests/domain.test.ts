@@ -34,7 +34,7 @@ test('la couleur des yeux ou du nez ne déteint pas sur les pièces', () => {
 })
 
 test('queue de la souris', () => {
-  expect(buildCords(samplePattern())).toEqual([{ label: 'QUEUE', length: 40, color: '#9b9a9c' }])
+  expect(buildCords(samplePattern())).toMatchObject([{ label: 'QUEUE', length: 40, color: '#9b9a9c' }])
 })
 
 test('sécurité : seuls les types de fichiers inoffensifs sont servis tels quels', () => {

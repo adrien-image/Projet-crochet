@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import type { Model, Part, Vec3 } from './model'
-import { cordGeometry, latheGeometry, panelGeometry } from './geometry'
+import { cordGeometry, cushionGeometry, latheGeometry, panelGeometry } from './geometry'
 import { chainMaps, stitchMaps } from './yarnTextures'
 import { shade } from '../domain/colors'
 import { t } from '../i18n'
@@ -62,7 +62,7 @@ function geometryFor(part: Part, cache: GeoCache, next: GeoCache): THREE.BufferG
   let g = cache.get(key) ?? next.get(key)
   if (!g) {
     g = part.kind === 'lathe' ? latheGeometry(part.rings, part.color)
-      : part.kind === 'panel' ? panelGeometry(part.rows, part.color)
+      : part.kind === 'panel' ? (part.puff ? cushionGeometry(part.rows, part.puff) : panelGeometry(part.rows, part.color, part.curve))
         : part.kind === 'cord' ? cordGeometry(part.points, part.radius, part.stitches)
           : new THREE.SphereGeometry(part.radius, 32, 20)
   }
@@ -166,7 +166,8 @@ const Canvas3D = forwardRef<Viewer3DHandle, Props & { onLost: () => void }>(func
 
     const scene = new THREE.Scene()
     const pmrem = new THREE.PMREMGenerator(renderer)
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    const room = new RoomEnvironment()
+    const env = pmrem.fromScene(room, 0.04).texture
     scene.environment = env
     scene.environmentIntensity = 0.5
 
@@ -314,7 +315,14 @@ const Canvas3D = forwardRef<Viewer3DHandle, Props & { onLost: () => void }>(func
       ctx.current?.geometries.forEach((g) => g.dispose())
       env.dispose()
       pmrem.dispose()
+      // renderer.dispose() ne libère ni la carte d'ombre, ni la pièce d'éclairage, ni le sol :
+      // sans cela chaque ouverture de l'onglet 3D garde un contexte WebGL (le navigateur en limite le nombre)
+      room.dispose()
+      key.shadow.dispose()
+      ground.geometry.dispose()
+      ground.material.dispose()
       renderer.dispose()
+      renderer.forceContextLoss()
       canvas.remove()
       ctx.current = null
     }

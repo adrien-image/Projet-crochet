@@ -12,7 +12,19 @@ export interface Settings {
   persistAsked: boolean
 }
 
-const KEY = 'crochet.settings.v1'
+export const SETTINGS_KEY = 'crochet.settings.v1'
+const KEY = SETTINGS_KEY
+
+/** Suppressions (id → date ISO) d'un fichier ou de localStorage : uniquement des chaînes. */
+export function cleanDeleted(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [id, at] of Object.entries(raw)) {
+    // une date dans le futur (fichier forgé ou horloge fausse) supprimerait le patron pour toujours
+    if (id !== '__proto__' && typeof at === 'string' && Date.parse(at) <= Date.now() + 86400e3) out[id] = at
+  }
+  return out
+}
 
 export function defaultSettings(): Settings {
   return { lang: null, firstUseAt: new Date().toISOString(), lastExportAt: null, reminderSnoozedUntil: null, deleted: {}, persistAsked: false }
@@ -28,7 +40,7 @@ export function loadSettings(): Settings {
         firstUseAt: typeof raw.firstUseAt === 'string' ? raw.firstUseAt : d.firstUseAt,
         lastExportAt: typeof raw.lastExportAt === 'string' ? raw.lastExportAt : null,
         reminderSnoozedUntil: typeof raw.reminderSnoozedUntil === 'string' ? raw.reminderSnoozedUntil : null,
-        deleted: raw.deleted && typeof raw.deleted === 'object' ? raw.deleted : {},
+        deleted: cleanDeleted(raw.deleted),
         persistAsked: !!raw.persistAsked,
       }
     }

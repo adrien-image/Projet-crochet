@@ -163,7 +163,7 @@ test('couleurs par rang et estimation du fil', async ({ page }) => {
   await dialog.getByLabel('Texte du patron').fill('BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 en rose (18)\nR4 : 18 ms (18)\nChanger pour le fil blanc.\nR5 : 18 ms (18)')
   await dialog.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.locator('.pattern-hero h1')).toHaveText('Balle rayée')
-  const yarn = page.locator('.panel', { hasText: 'Fil nécessaire' })
+  const yarn = page.locator('.yarn-card')
   await expect(yarn.locator('.yarn-total')).toContainText('m')
   await expect(yarn.locator('.yarn-list li')).toHaveCount(2)
   await expect(yarn).toContainText('crochet de 3 mm')

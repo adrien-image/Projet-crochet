@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from 'react'
+import { Suspense, useMemo, useRef, useState } from 'react'
 import { Camera, Check, Hand, Pause, Play, RotateCcw, Palette, Undo2 } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { roundsOf } from '../../domain/progress'
@@ -10,10 +10,11 @@ import { t } from '../../i18n'
 import { Segmented } from '../../ui/Segmented'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorBoundary } from '../../ui/ErrorBoundary'
+import { lazyWithReload } from '../../ui/lazyWithReload'
 import { setPieceColor, setPlacement, type Update } from './actions'
 
 // three.js (~600 ko) n'est téléchargé qu'à l'ouverture de cet onglet
-const Viewer3D = lazy(() => import('../../render3d/Viewer3D'))
+const Viewer3D = lazyWithReload(() => import('../../render3d/Viewer3D'))
 
 const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 

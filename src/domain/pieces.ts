@@ -24,19 +24,28 @@ export interface Piece {
   /** rembourrée (amigurumi) — faux pour un bonnet, un sac, un panier… */
   stuffed: boolean
   color: string
+  /** une couleur par exemplaire : « Corps x2 (bleu, blanc) » */
+  copyColors?: string[]
 }
 
 export interface CordPiece {
   label: string
   length: number
   color: string
+  /** « Antennes x2 » */
+  copies: number
 }
 
 export interface Details {
-  eyes: { color: string } | null
+  /** gap : écart entre les yeux en mailles (« 8 sc apart ») */
+  eyes: { color: string, gap?: number } | null
   nose: { color: string } | null
   /** rangs cités dans les consignes d'assemblage (« Pin the front legs between rows 21 and 22 ») */
   rows: RowHint[]
+  /** le patron se rembourre (« Rembourre l'aile et le corps ») */
+  stuffed: boolean
+  /** traits brodés sur le dessus (« Brode plusieurs traits en laine chenille blanc ») */
+  stripes: { color: string } | null
 }
 
 /** Mention d'un rang hors des rangs eux-mêmes : texte qui la précède sur la ligne, rang (milieu d'un intervalle). */
@@ -89,7 +98,31 @@ const STUFF = /\b(?:stuff(?:ing)?|fill\s+(?:it|with)|(?:re)?bourr(?:er|ez|age))\
 const CONTAINER = /\b(?:bonnet|chapeau|b[ée]ret|hat|beanie|cap|sac|bag|pochette|pouch|panier|basket|corbeille|pot|tasse|mug|cup|bol|bowl|chaussons?|slippers?|chaussettes?|socks?)\b/i
 
 export function shortName(section: string | null): string {
-  return (section ?? '').replace(/\s*[(—–:-].*$/, '').trim()
+  // « Corps x2 (bleu, blanc) » → « Corps »
+  return (section ?? '').replace(/\s*[(—–:-].*$/, '').replace(/\s+[x×]\s*\d+\s*$/i, '').trim()
+}
+
+const ACCENT_PIECE = /\b(?:spikes?|picots?|piquants?|horns?|cornes?|scales?|[ée]cailles?|cr[êe]tes?|crests?)\b/i
+
+/** Couleurs distinctes citées dans le champ « fil », dans l'ordre (« vert et beige » → [vert, beige]). */
+function allYarnColors(yarn: string | null | undefined): string[] {
+  const out: string[] = []
+  for (const part of (yarn ?? '').split(/\s*(?:,|;|\/|\+|\bet\b|\band\b)\s*/i)) {
+    const c = findYarnColor(part)
+    if (c && !out.includes(c)) out.push(c)
+  }
+  return out
+}
+
+/** Couleurs listées entre parenthèses dans un titre : « Corps x2 (bleu, blanc) » → [bleu, blanc]. */
+function copyColorList(heading: string, legend: Map<string, string>): string[] {
+  const inner = heading.match(/\(([^)]*)\)/)?.[1]
+  if (!inner) return []
+  const parts = inner.split(/\s*(?:,|\/|\bet\b|\band\b|\+)\s*/).map((x) => x.trim()).filter((x) => x && !/^[x×]\s*\d+$/i.test(x))
+  // seulement des noms de couleur (« bleu, blanc »), pas « fil beige, un peu de rose »
+  if (parts.length < 2 || parts.some((x) => x.split(/\s+/).length > 2)) return []
+  const colors = parts.map((x) => headingColor(x, legend))
+  return colors.every(Boolean) ? colors as string[] : []
 }
 
 export function buildPieces(pattern: Pattern): Piece[] {
@@ -100,8 +133,9 @@ export function buildPieces(pattern: Pattern): Piece[] {
   const pieces: Piece[] = []
   for (const r of rounds) {
     if (!r.count) continue
-    const last = pieces[pieces.length - 1]
-    if (last && last.index === r.piece) {
+    // une pièce reprise plus loin dans le texte (« R25 & 26 » après le plastron) garde ses rangs ensemble
+    const last = pieces.find((p) => p.index === r.piece)
+    if (last) {
       last.rounds.push(r)
       if (r.section && !last.sections.includes(r.section)) last.sections.push(r.section)
       continue
@@ -121,6 +155,7 @@ export function buildPieces(pattern: Pattern): Piece[] {
     })
   }
   const legend = colorLegend(pattern.text)
+  const yarnColors = allYarnColors(pattern.yarn)
   for (const p of pieces) {
     const names = [...new Set(p.sections.map(shortName))].filter(Boolean)
     p.label = names.join(' + ') || 'Pièce'
@@ -135,9 +170,27 @@ export function buildPieces(pattern: Pattern): Piece[] {
     const stuffs = !noStuff && STUFF.test(own)
     p.flattened = !stuffs && /\b(?:[àa]\s+plat|aplatir|aplatie?|flatten(?:ed)?|sew\s+flat|close\s+flat)\b/i.test(own)
     p.stuffed = !p.flat && !noStuff && !p.flattened && (stuffs || !CONTAINER.test(`${p.label} ${pattern.name}`))
-    // une pièce qui change de fil : les couleurs citées dans ses rangs ne sont pas celle de départ
+    // une pièce qui change de fil : les couleurs citées dans ses rangs ne sont pas celle de départ ;
+    // la couleur de ses premiers rangs (« Use color #8008 rock corey ») est sa couleur de base
     const changes = p.rounds.some((r) => r.color)
-    p.color = pattern.pieceColors?.[p.label] ?? headingColor(p.sections.join(' '), legend) ?? (changes ? null : findYarnColor(ownYarn)) ?? fallback
+    // piquants, cornes, écailles sans couleur indiquée : la 2e couleur du fil, s'il y en a une
+    // (« green and beige » → piquants beige, comme sur la plupart des photos)
+    const accent = ACCENT_PIECE.test(p.label) && yarnColors.length > 1 ? yarnColors[1] : null
+    const natural = headingColor(p.sections.join(' '), legend) ?? p.rounds[0].color ?? (changes ? null : findYarnColor(ownYarn)) ?? accent ?? fallback
+    const override = pattern.pieceColors?.[p.label]
+    p.color = override ?? natural
+    // couleur choisie à la main : elle remplace aussi la couleur de base écrite dans les rangs
+    if (override && override !== natural) p.rounds = p.rounds.map((r) => (r.color === natural ? { ...r, color: null } : r))
+    // « Corps x2 (bleu, blanc) » : un exemplaire de chaque couleur (les « Blanc : » des rangs disent
+    // seulement quel exemplaire on crochète)
+    const listed = copyColorList(p.sections[0] ?? '', legend)
+    // « Tête de la raie (bleu, blanc) » : une par couleur, même sans « x2 »
+    if (p.copies === 1 && listed.length > 1 && listed.length <= 4) p.copies = listed.length
+    if (p.copies > 1 && listed.length === p.copies && new Set(listed).size > 1) {
+      p.copyColors = override ? listed.map(() => override) : listed
+      p.color = p.copyColors[0]
+      p.rounds = p.rounds.map((r) => (r.color ? { ...r, color: null } : r))
+    }
   }
   return pieces
 }
@@ -145,23 +198,32 @@ export function buildPieces(pattern: Pattern): Piece[] {
 export function buildCords(pattern: Pattern): CordPiece[] {
   const cords = parseCords(pattern.text)
   const texts = splitSections(pattern.text)
-  const fallback = findYarnColor(pattern.yarn) ?? DEFAULT_YARN
+  // sans couleur indiquée : le fil de la pièce principale (la queue d'une raie bleue est bleue)
+  const fallback = findYarnColor(pattern.yarn) ?? (cords.length ? buildPieces(pattern)[0]?.color : null) ?? DEFAULT_YARN
   return cords.map((c) => {
     const label = shortName(c.section) || 'Chaînette'
     const own = `${c.section ?? ''}\n${texts.get(c.section) ?? ''}`.split(/[.\n!;]/).filter((x) => !DETAIL.test(x)).join('\n')
-    return { label, length: c.length, color: pattern.pieceColors?.[label] ?? findYarnColor(own) ?? fallback }
+    return { label, length: c.length, color: pattern.pieceColors?.[label] ?? findYarnColor(own) ?? fallback, copies: sectionCopies(c.section) }
   })
 }
 
 /** Yeux et nez mentionnés dans le patron (yeux de sécurité, nez brodé…). */
+function eyeGap(text: string): { gap?: number } {
+  const m = text.replace(/\s+/g, ' ').match(/\b(?:eyes?|yeux)\b[^.]{0,120}?\b(\d{1,2})\s*(?:sc|sts?|stitches|mailles?|m)\b\s*(?:apart|between|d['’][ée]cart|d['’]intervalle|entre)/i)
+  return m ? { gap: parseInt(m[1], 10) } : {}
+}
+
 export function findDetails(text: string): Details {
   const sentences = text.split(/[.\n!]/)
   const eyeSentence = sentences.find((s) => /\b(?:yeux|oeil|œil|eyes?)\b/i.test(s))
-  const noseSentence = sentences.find((s) => /\b(?:nez|truffe|nose|museau\s+brod)/i.test(s) && /\b(?:brod|coudre|cousu|embroider|sew|perle|bead|bouton)/i.test(s))
+  const noseSentence = sentences.find((s) => /\b(?:nez|truffe|nose|museau\s+brod)/i.test(s) && /\b(?:brod|coudre|cousu|embroider|sew|perle|bead|bouton|safety|s[ée]curit[ée]|attach|insert|place|fix)/i.test(s))
+  const stripeSentence = sentences.find((s) => /\b(?:brode[rz]?|embroider)\b[^\n]*\b(?:traits?|lignes?|lines?|stripes?|dashes?|tirets?)\b/i.test(s))
   const noseColor = noseSentence?.match(/\b(?:nez|truffe|nose)\b[^,;]*/i)?.[0]
   return {
-    eyes: eyeSentence ? { color: '#141416' } : null,
+    eyes: eyeSentence ? { color: '#141416', ...eyeGap(text) } : null,
     nose: noseSentence ? { color: findYarnColor(noseColor) ?? findYarnColor(noseSentence) ?? '#2a2a2d' } : null,
     rows: rowHints(text),
+    stuffed: /\b(?:rembourr|bourr|stuff|fiberfill|ouate)/i.test(text),
+    stripes: stripeSentence ? { color: findYarnColor(stripeSentence) ?? '#f4f1ea' } : null,
   }
 }

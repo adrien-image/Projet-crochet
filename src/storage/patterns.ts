@@ -10,10 +10,12 @@ import { uid } from './util'
 
 export { uid }
 
-const STORAGE_KEY = 'crochet.patterns.v1'
+export const STORAGE_KEY = 'crochet.patterns.v1'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const HEX = /^#[0-9a-f]{6}$/i
+/** clés venues d'un fichier ou d'un lien : jamais celles qui modifieraient le prototype de l'objet */
+const safeKey = (k: string) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
 const THUMB = /^data:image\/(?:jpeg|png|webp);/
 const IMAGE_DATA = /^data:image\/(?:jpeg|png|webp|gif);/
 /** au-delà, les miniatures pèseraient trop dans localStorage */
@@ -58,11 +60,11 @@ export function normalizePattern(p: any): Pattern {
     fileType: str(p.fileType) || null,
   }
   if (p.pieceColors && typeof p.pieceColors === 'object') {
-    for (const [k, v] of Object.entries(p.pieceColors)) if (typeof v === 'string' && HEX.test(v)) pattern.pieceColors[k] = v
+    for (const [k, v] of Object.entries(p.pieceColors)) if (safeKey(k) && typeof v === 'string' && HEX.test(v)) pattern.pieceColors[k] = v
   }
   if (p.roundNotes && typeof p.roundNotes === 'object') {
     for (const [k, v] of Object.entries(p.roundNotes as Record<string, Partial<RoundNote>>)) {
-      if (!v || typeof v !== 'object') continue
+      if (!safeKey(k) || !v || typeof v !== 'object') continue
       const note: RoundNote = {
         text: str(v.text).slice(0, 4000),
         photoId: str(v.photoId) || null,
@@ -84,7 +86,7 @@ export function normalizePattern(p: any): Pattern {
   if (p.placements && typeof p.placements === 'object') {
     const vec = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => Number.isFinite(x))
     for (const [k, v] of Object.entries(p.placements as Record<string, Partial<Placement>>)) {
-      if (v && vec(v.point) && vec(v.normal)) pattern.placements[k] = { point: v.point, normal: v.normal }
+      if (safeKey(k) && v && vec(v.point) && vec(v.normal)) pattern.placements[k] = { point: v.point, normal: v.normal }
     }
   }
   if (str(p.image).startsWith('data:')) pattern.image = p.image
@@ -175,15 +177,21 @@ export function duplicatePattern(p: Pattern, keepProgress: boolean, name: string
   return copy
 }
 
-/** data: → fichier enregistré dans IndexedDB (et sa miniature) */
-export type StoredAssets = Map<string, { id: string, thumb: string | null }>
+/** data: → fichier enregistré dans IndexedDB (et sa miniature), ou null s'il est illisible */
+export type StoredAssets = Map<string, { id: string, thumb: string | null } | null>
 
 /** Enregistre dans IndexedDB les fichiers encore en data: (ancien format, import, synchronisation). */
 export async function storeInlineAssets(p: Pattern): Promise<StoredAssets | null> {
   if (!needsAssetMigration(p)) return null
   const stored: StoredAssets = new Map()
   const put = async (data: string, thumbSize: number | null) => {
-    if (!stored.has(data)) stored.set(data, { id: await putAsset(data), thumb: thumbSize ? await makeThumbnail(data, thumbSize) : null })
+    if (stored.has(data)) return
+    try {
+      stored.set(data, { id: await putAsset(data), thumb: thumbSize ? await makeThumbnail(data, thumbSize) : null })
+    } catch {
+      // base64 abîmé, encodage invalide : seul ce fichier est abandonné, pas tout l'import
+      stored.set(data, null)
+    }
   }
   if (p.image) await put(p.image, 320)
   if (p.fileData) await put(p.fileData, null)
@@ -197,20 +205,24 @@ export async function storeInlineAssets(p: Pattern): Promise<StoredAssets | null
  * ce que l'utilisateur a modifié pendant l'enregistrement (photo ajoutée, note…) est conservé.
  */
 export function applyStoredAssets(p: Pattern, stored: StoredAssets): Pattern {
+  // `null` : fichier illisible, retiré (sinon la migration recommencerait à chaque démarrage)
   const next: Pattern = { ...p }
   const cover = p.image ? stored.get(p.image) : undefined
   if (cover) Object.assign(next, { imageId: cover.id, thumb: cover.thumb ?? p.thumb, image: undefined })
+  else if (cover === null) next.image = undefined
   const file = p.fileData ? stored.get(p.fileData) : undefined
   if (file) Object.assign(next, { fileId: file.id, fileType: p.fileData!.match(/^data:([^;,]+)/)?.[1] ?? p.fileType, fileData: undefined })
-  next.gallery = p.gallery.map((g) => {
+  else if (file === null) Object.assign(next, { fileData: undefined, fileName: null, fileType: null })
+  next.gallery = p.gallery.flatMap((g) => {
     const s = g.data ? stored.get(g.data) : undefined
-    return s ? { id: s.id, thumb: g.thumb ?? s.thumb } : g
+    if (s === null) return g.thumb ? [{ id: '', thumb: g.thumb }] : []
+    return [s ? { id: s.id, thumb: g.thumb ?? s.thumb } : g]
   })
   next.roundNotes = Object.fromEntries(Object.entries(p.roundNotes).map(([k, n]) => {
     const s = n.photoData ? stored.get(n.photoData) : undefined
-    if (!s) return [k, n]
+    if (s === undefined) return [k, n]
     const { photoData: _data, ...note } = n
-    return [k, { ...note, photoId: s.id, photoThumb: note.photoThumb ?? s.thumb }]
+    return [k, s ? { ...note, photoId: s.id, photoThumb: note.photoThumb ?? s.thumb } : note]
   }))
   return next
 }
