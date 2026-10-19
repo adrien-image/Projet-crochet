@@ -101,13 +101,45 @@ function lookup(word: string, map: Record<string, StitchType>): StitchType | nul
 }
 
 // Remplace les formes longues par leur abréviation avant la tokenisation.
-const PHRASES: [RegExp, string][] = [
+// cible d'une maille (« in next sc », « into first dc ») : ce n'est pas une maille de plus
+const TARGET = String.raw`(?:sts?|stitch(?:es)?|sc|hdc|dc|tr|chs?|ch-sp|sp|spaces?|slst|loops?)`
+const STITCH = String.raw`(?:sc|SC|ms|hdc|db|dc|br|tr|dbr)`
+
+const PHRASES: [RegExp, string | ((m: string, ...g: string[]) => string)][] = [
   [/mailles?\s+serr[ée]es?/gi, 'ms'],
   [/mailles?\s+coul[ée]es?/gi, 'mc'],
   [/mailles?\s+en\s+l['’]\s*air/gi, 'ml'],
   [/demi[-\s]brides?/gi, 'db'],
   [/doubles?[-\s]brides?/gi, 'dbr'],
   [/slip\s+stitch(?:es)?|sl\s+sts?\b/gi, 'slst'],
+  // « Ch 3 (counts as a dc) » : la chaînette remplace une bride
+  [new RegExp(String.raw`\bch\s*\d+\s*\(?\s*(?:counts?|counting)\s+as\s+(?:a\s+|1\s+|first\s+|the\s+first\s+)?(sc|hdc|dc|tr)\b\)?`, 'gi'), '1 $1'],
+  // « With MC », « Join A », « Change to B » : une couleur de fil, pas une maille (« mc » = maille coulée)
+  [/\b(?:[Ww]ith|[Jj]oin|[Uu]sing|[Ss]witch\s+to|[Cc]hange\s+to|[Aa]ttach|[Bb]reak|[Ff]asten\s+off|[Dd]rop|[Cc]ut)\s+(?:MC|CC\d?|[A-E])\b/g, ' '],
+  // « join with sl st to first sc », « slst to the top of the ch 3 to close » : fermeture du tour
+  [/\bjoin(?:ing)?(?:\s+with\s+(?:a\s+)?(?:slst|sl\s*st))?(?:\s+(?:to|in|into)\s+(?:the\s+)?(?:first|1st|top|beg\w*)(?:\s+of\s+(?:the\s+)?(?:\w+))?(?:\s+(?:sc|dc|hdc|st|ch\s*\d*|stitch))?)?/gi, ' '],
+  [/\b(?:slst|sl\s*st)\s+(?:to|in|into)\s+(?:the\s+)?(?:top|first|1st|beg\w*)\b[^.,;]*/gi, ' '],
+  // ordre inversé « sc 1 into next sc », « sc 2 around »
+  [new RegExp(String.raw`\b(sc|hdc|dc|tr|ms)\s+(\d{1,2})(?=\s+(?:in|into|around|dans)\b)`, 'gi'), '$2 $1'],
+  // « 1 sc in each of next 2 sc » = 2 ms
+  [new RegExp(String.raw`\b(\d{1,2})\s*${STITCH}\s+(?:in|into)\s+(?:each\s+of\s+)?(?:the\s+)?next\s+(\d{1,3})\s*${TARGET}\b`, 'gi'),
+    (m: string, n: string, k: string) => /each\s+of/i.test(m) ? `${+n * +k} ${m.match(/\d\s*([a-z]+)/i)![1]}` : m],
+  // « Slst across 4 Tr » = 4 mailles coulées
+  [new RegExp(String.raw`\b(sc|hdc|dc|tr|slst)\s+across\s+(?:the\s+)?(?:next\s+)?(\d{1,3})\s*${TARGET}\b`, 'gi'), '$2 $1'],
+  // « sc into next 2 chs » (sans nombre devant la maille) = 2 ms
+  [new RegExp(String.raw`(?<![\d]\s?)\b(sc|hdc|dc|tr|slst)\s+(?:in|into)\s+(?:the\s+)?(?:next|following)\s+(\d{1,3})\s*${TARGET}\b`, 'gi'), '$2 $1'],
+  // picot : chaînette refermée sur elle-même (« Ch4, Slst into 4th Ch from Hk (creates picot) »)
+  [/\bch\s*\d+\s*,?\s*(?:slst|sl\s*st)\s+(?:in|into)\s+(?:the\s+)?(?:\d+(?:st|nd|rd|th)?\s+)?ch\s+from\s+(?:the\s+)?(?:hk|hook)\b(?:\s*\(\s*creates?\s+(?:a\s+)?picot\s*\))?/gi, ' picot '],
+  // « 2 sc around » : deux mailles dans chaque maille du tour
+  [new RegExp(String.raw`\b2\s*${STITCH}\s+(?=around\b)`, 'g'), 'inc '],
+  // « 2 sc in next sc », « 2 dc in first sc », « 2 sc in same sp as sl st » = une augmentation
+  [new RegExp(String.raw`\b2\s*${STITCH}\s+(?:in|into)\s+(?:the\s+)?(?:same|next|first|last)(?:\s+${TARGET})?(?:\s+as\s+(?:slst|join\w*))?`, 'g'), 'inc'],
+  [new RegExp(String.raw`\b3\s*${STITCH}\s+(?:in|into)\s+(?:the\s+)?(?:same|next|first|last)(?:\s+${TARGET})?(?:\s+as\s+(?:slst|join\w*))?`, 'g'), 'inc3'],
+  // cible restante (« 1 sc in next sc », « slst into last ch », « into the 4th ch from hook »)
+  [new RegExp(String.raw`\b(?:in|into)\s+(?:the\s+)?(?:next|same|first|last|following)\s+(?:\d+\s*)?${TARGET}\b(?:\s+as\s+slst)?`, 'gi'), ' '],
+  [/\b(?:in|into)\s+(?:the\s+)?\d+(?:st|nd|rd|th)?\s+chs?\s+from\s+(?:the\s+)?(?:hk|hook)\b/gi, ' '],
+  // picot « Ch 4, sl st into 4th ch from hook » : une boucle décorative, pas des mailles du rang
+  [/\bpicot\b/gi, ' '],
   [/single\s+crochets?/gi, 'sc'],
   [/half\s+double\s+crochets?/gi, 'hdc'],
   [/double\s+crochets?/gi, 'dc'],
@@ -145,7 +177,7 @@ const PHRASES: [RegExp, string][] = [
 function preprocess(str: string, notation: Notation) {
   // En termes UK, la maille serrée s'écrit « dc » : on la ramène à « SC » pour les règles ci-dessous.
   let s = notation === 'uk' ? str.replace(/\bdc\b(?!2)/gi, 'SC') : str
-  for (const [re, rep] of PHRASES) s = s.replace(re, rep)
+  for (const [re, rep] of PHRASES) s = s.replace(re, rep as (m: string, ...g: string[]) => string)
   return s
 }
 
@@ -239,11 +271,14 @@ function splitTopLevel(str: string) {
   let depth = 0
   let star = false
   let cur = ''
-  for (const c of str) {
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i]
     if (c === '*') star = !star
     else if (c === '(' || c === '[') depth++
     else if ((c === ')' || c === ']') && depth > 0) depth--
-    if ((c === ',' || c === ';') && depth === 0 && !star) {
+    // virgule, point-virgule, ou point de fin de phrase (« 2 sc in next sc. 1 sc in next sc. *… »)
+    const sentence = c === '.' && (i + 1 >= str.length || /\s/.test(str[i + 1])) && !/\d/.test(str[i - 1] ?? '')
+    if ((c === ',' || c === ';' || sentence) && depth === 0 && !star) {
       parts.push(cur)
       cur = ''
     } else cur += c
@@ -261,8 +296,22 @@ const ROUND_RE = new RegExp(
   '\\s*[:.)]?\\s*(.+)$',
   'i',
 )
+// rangs numérotés en toutes lettres : « 1st rnd: », « 6th to 13th rnds: », « 2e rang : », « 1ª vuelta: »
+const ORDINAL = String.raw`(?:st|nd|rd|th|er|re|ère|ème|e|º|ª|°)`
+const LONG_ROUND_WORD = '(?:rounds?|rnds?|rows?|rangs?|tours?|vueltas?|hileras?|carreiras?|voltas?|runden?|reihen?|giri|giro|toer(?:en)?)'
+const ORDINAL_ROUND_RE = new RegExp(
+  String.raw`^\s*[-•·]?\s*(\d{1,3})${ORDINAL}\s*(?:(?:[-–—&]|to|and|à|au|a|y|e)\s*(\d{1,3})${ORDINAL}?\s*)?(${LONG_ROUND_WORD})\s*[:.]\s*(.+)$`, 'i')
+// « … Join. 20 sc. », « (Sc2tog) 5 times. 5 sts. Fasten off. » : le compte en dernière phrase
+const TAIL_COUNT_RE = /(?:[.;!]\s*(?:join\.?\s*)?|\bjoin\.?\s*)(\d{1,4})\s*(?:sc|sts?|stitches|dc|hdc|tr|mailles|ms)\.?((?:\s+(?:fasten|finish|leave|leaving|break|cut|stuff|do\s+not|arr[êe]ter|couper)\b.*)?)$/i
+const WORKED_STITCH_RE = /\b(?:sc|hdc|dc|tr|inc|dec|ms|aug|dim|db|br|dbr|pb|mb|fm|sc2tog|sc3tog|invdec)\b/i
+// « As 4th rnd. », « Rep rnd 4 », « Comme le rang 4 » : mêmes instructions qu'un autre rang
+const AS_ROUND_RE = /^(?:work\s+)?(?:as|same\s+as|rep(?:eat)?|comme(?:\s+(?:le|au))?|idem|r[ée]p[ée]ter(?:\s+le)?)\s+(?:(?:rnds?|rounds?|rows?|rangs?|tours?|r)\.?\s*)?(\d{1,3})(?:st|nd|rd|th|e|er|ème)?(?:\s+(?:rnds?|rounds?|rows?|rangs?|tours?))?\s*\.?$/i
+const BRACKET_COUNT_RE = /\[([^\]]*\d+\s*(?:sc|hdc|dc|tr|sts?|stitches|ms|db|br|dbr)\b[^\]]*)\]\s*\.?\s*$/i
+// mailles travaillées dans une chaînette (« Dc into next 2 Ch », « sc in each ch across »)
+const INTO_CHAINS_RE = /\b(?:in|into)\s+(?:the\s+)?(?:next|last|each|first|rem(?:aining)?)\s+(?:\d+\s*)?ch(?:ain)?s?\b(?!\s*-?\s*sp)/i
+const FROM_HOOK_RE = /\bfrom\s+(?:the\s+)?(?:hk|hook|crochet)\b/i
 // « (18) », « = 16 sc », « = 54 sc in each rnd. » (en fin de rang)
-const COUNT_RE = /(?:[([]\s*(\d+)\s*(?:m(?:ailles)?|ms|sts?|stitches|pb|pts?|puntos|pontos|fm|maschen|maglie|mb|steken|p)?\.?\s*[)\]]|[=→]\s*(\d+)\s*(?:[a-zà-ÿ]{1,9}\.?)?(?:\s+(?:in|en|dans)\s+(?:e\s?ach|every|chaque)\s+(?:rnds?|rounds?|rows?|rangs?|tours?))?)\s*[.;]?\s*$/i
+const COUNT_RE = /(?:[([]\s*(\d+)\s*(?:m(?:ailles)?|ms|sts?|stitches|sc|hdc|dc|pb|pts?|puntos|pontos|fm|maschen|maglie|mb|steken|p)?\.?\s*[)\]]|[=→]\s*(\d+)\s*(?:[a-zà-ÿ]{1,9}\.?)?(?:\s+(?:in|en|dans)\s+(?:e\s?ach|every|chaque)\s+(?:rnds?|rounds?|rows?|rangs?|tours?))?)\s*[.;]?\s*$/i
 const EACH_STITCH_RE = /(?:(?:\b(?:dans|sur)|(?:^|\s)[àa])\s+(?:chaque|toutes\s+les)\s+(?:mailles?|points?|m)\b(?:\s+(?:suivantes?|du\s+tour|du\s+rang|autour))?|\btout\s+(?:le\s+)?(?:tour|autour)\b|\bautour\b|\b(?:in|into)\s+(?:each|every)\s+(?:st(?:itch)?|sp|sc)\b(?:\s+(?:around|across))?|\b(?:all\s+)?around\b|\bacross\b|\b(?:en|em)\s+cada\s+(?:punto|ponto|pt|p)\b|\bin\s+(?:jede|ogni|elke)\s+(?:masche|maglia|punto|steek|st|m)\b|\b(?:alrededor|rundherum|rondom)\b|\bem\s+volta\b|\btutto\s+intorno\b)/i
 const SIZES_COUNT_RE = /[([]\s*(\d+(?:\s*[,/]\s*\d+)+)\s*(?:m(?:ailles)?|ms|sts?|stitches)?\.?\s*[)\]]\s*[.;]?\s*$/i
 // « 6 (7, 8) ms » : une valeur par taille ; une seule valeur entre parenthèses doit être suivie d'une maille
@@ -368,7 +417,7 @@ export function sectionCopies(section: string | null | undefined) {
 // Rangs numérotés sans préfixe : « 1 – 6 sc… », « 4 to 7 – 18 sc », « 18 and 19 – … », « 3 e 4 – … »
 const BARE_ROUND_RE = /^\s*(\d{1,3})(?:\s*(?:[-–—]|to|and|et|e|y|à|au|a)\s*(\d{1,3}))?\s*(?:[–—:.)]|-(?!\d))\s*(.+)$/i
 // un rang sans préfixe doit contenir une maille (sinon : liste numérotée d'étapes, quantités…)
-const STITCH_HINT_RE = /\b(?:sc|hdc|dc|tr|trc|htr|ss|sl\s*st|slst|ch|inc|dec|invdec|ms|db|dB|br|dbr|mc|ml|aug|dim|pb|mr|magic\s+(?:ring|circle)|anneau)\b/i
+const STITCH_HINT_RE = /\b(?:sc|hdc|dc|tr|trc|htr|ss|sl\s*st|slst|ch|inc|dec|invdec|ms|db|dB|br|dbr|mc|ml|aug|dim|pb|mr|magic\s+(?:ring|circle)|anneau)\b|\bch(?=\d)/i
 
 interface RoundMatch { word: string, from: number, to: number | null, instruction: string }
 /** `index` : numéro de la ligne dans le texte d'origine (0 = première) */
@@ -433,6 +482,11 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
       out.push({ kind: 'round', line, index, round: { word: rm[1], from: parseInt(rm[2], 10), to: rm[3] != null ? parseInt(rm[3], 10) : null, instruction: rm[4] } })
       continue
     }
+    const om = line.match(ORDINAL_ROUND_RE)
+    if (om) {
+      out.push({ kind: 'round', line, index, round: { word: om[3], from: parseInt(om[1], 10), to: om[2] != null ? parseInt(om[2], 10) : null, instruction: om[4] } })
+      continue
+    }
     const bm = line.match(BARE_ROUND_RE)
     if (bm && STITCH_HINT_RE.test(bm[3])) {
       const from = parseInt(bm[1], 10)
@@ -460,7 +514,10 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
     let found = -1
     for (let j = i - 1; j >= 0 && out[j].kind === 'text' && i - j <= 8; j--) {
       const l = out[j].line
-      if (looseSectionName(l) && !INSTRUCTION_LINE_RE.test(l) && !/[:.;!?]$/.test(l) && l.split(':')[0].split(/\s+/).length <= 8) {
+      // « Bookmark: » (titre court suivi de deux-points) ; pas une phrase (« Create a magic ring. Note: … »)
+      const shortLabel = /^[^:]{2,30}:$/.test(l.trim()) && l.trim().split(/\s+/).length <= 3 && !colorLabel(l)
+      if (looseSectionName(l) && !INSTRUCTION_LINE_RE.test(l) && (shortLabel || !/[:.;!?]$/.test(l)) && !/[.!?]\s+\S/.test(l)
+        && l.split(':')[0].split(/\s+/).length <= 8) {
         found = j
         break
       }
@@ -489,7 +546,7 @@ const EXPLICIT_REPEAT_RE = /[x×*]\s*\d|\d\s*[x×]|\brep(?:eat)?\b|\bfois\b|\bti
 
 /** La ligne est-elle un rang (« R3 : … », « 3 – 1 sc, 1 inc (18) ») ? */
 export function looksLikeRound(line: string): boolean {
-  if (ROUND_RE.test(line)) return true
+  if (ROUND_RE.test(line) || ORDINAL_ROUND_RE.test(line)) return true
   const bm = line.match(BARE_ROUND_RE)
   return !!bm && STITCH_HINT_RE.test(bm[3])
 }
@@ -580,6 +637,8 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
   const legend = colorLegend(text)
   // couleur en cours dans la pièce (null : couleur de la pièce)
   let color: string | null = null
+  // instructions de chaque rang (« pièce:numéro »), pour « As 4th rnd »
+  const sameAs = new Map<string, { instruction: string, expected: number | null }>()
 
   for (const scanned of scanLines(text)) {
     const { line } = scanned
@@ -610,7 +669,9 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
     let instruction = rm.instruction
     color = colorIn(instruction, legend) ?? color
     const flat = /^rows?$/i.test(rm.word) || TURN_RE.test(instruction) || sectionFlat
-    const inSpace = CHAIN_SPACE_RE.test(instruction)
+    // dans les mailles en l'air (« sc in ch-sp ») ou sur une nouvelle chaînette (« 8 tr into the 4th ch
+    // from hook ») : le rang précédent ne dit pas combien de mailles sont prises
+    const inSpace = CHAIN_SPACE_RE.test(instruction) || FROM_HOOK_RE.test(instruction) || INTO_CHAINS_RE.test(instruction)
     const loop = BLO_RE.test(instruction) ? 'blo' : FLO_RE.test(instruction) ? 'flo' : null
     // espaces regroupés : les expressions de fin de rang (« = 16 sc », « (12) ») ne peuvent plus
     // s'emballer sur une longue suite d'espaces (texte collé, PDF)
@@ -626,8 +687,28 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
       const before = instruction.slice(0, cm.index)
       // « R8 - 14 (7 rnds) = 48 sc in each rnd » : rien avant « = », le compte est l'instruction
       instruction = cm[2] && !STITCH_HINT_RE.test(before) ? cm[0].replace(/^\s*[=→]\s*/, '').replace(/\s+(?:in|en|dans)\s+(?:e\s?ach|every|chaque)\s+\S+\s*\.?\s*$/i, '') : before
+    } else if (BRACKET_COUNT_RE.test(instruction)) {
+      // « [10 Dc, 2 Picots for ears] » : les mailles comptées, sans les picots ni les chaînettes
+      const m = instruction.match(BRACKET_COUNT_RE)!
+      expected = [...m[1].matchAll(/(\d+)\s*(?:sc|hdc|dc|tr|sts?|stitches|ms|db|br|dbr)\b/gi)].reduce((n, x) => n + +x[1], 0)
+      instruction = instruction.slice(0, m.index)
+    } else {
+      const tm = instruction.match(TAIL_COUNT_RE)
+      // seulement si des mailles sont décrites avant (« Ch 1. 18 sc. » est l'instruction elle-même)
+      if (tm && WORKED_STITCH_RE.test(instruction.slice(0, tm.index))) {
+        expected = parseInt(tm[1], 10)
+        instruction = instruction.slice(0, tm.index)
+      }
+    }
+    // « 6th to 13th rnds: As 4th rnd. » : instructions (et compte) du rang cité, dans la même pièce
+    const as = instruction.trim().match(AS_ROUND_RE)
+    const model = as ? sameAs.get(`${piece}:${as[1]}`) : null
+    if (model) {
+      instruction = model.instruction
+      expected ??= model.expected
     }
     instruction = instruction.replace(INLINE_SIZES_RE, (_, first, rest) => pickSize([first, ...rest.split(/[,/]/)], size).trim())
+    const raw = instruction
     instruction = preprocess(instruction, notation)
 
     // « R25 & 26 » placés après une autre pièce (« Make 2 more rnds joining this part into body ») :
@@ -688,6 +769,7 @@ export function parsePattern(text: string | null | undefined, options: ParseOpti
       }
       rounds.push(round)
       prevInSection = round
+      sameAs.set(`${piece}:${r}`, { instruction: raw, expected })
     }
   }
   return rounds

@@ -3,6 +3,7 @@
 // le parseur reconnaisse les rangs (« R1 : 6 ms… »).
 
 import { patternLanguage, type PatternLanguage } from '../domain/language'
+import { countTableRounds, joinWrappedRounds, stripPhotoRefs } from './countTable'
 
 const MAX_PAGES = 80
 
@@ -21,10 +22,23 @@ export function pageLines(pieces: TextPiece[]): string[] {
 /** Ligne d'une page et le rectangle qu'elle occupe (unités du PDF, origine en bas à gauche). */
 export interface PageRow { text: string, x0: number, y0: number, x1: number, y1: number }
 
+// exposant ordinal (« 4th », « 2nd », « 1er ») écrit plus haut et plus petit que sa ligne
+const SUPERSCRIPT_RE = /^\s*(?:st|nd|rd|th|er|re|e|ème|ère|ers?|o|a|º|ª)\s*$/i
+
 function pageRows(pieces: TextPiece[]): PageRow[] {
   const rows: { y: number, h: number, parts: TextPiece[] }[] = []
-  for (const p of pieces) {
+  // exposants en dernier : ils rejoignent la ligne dont ils dépassent
+  const supers = pieces.filter((p) => SUPERSCRIPT_RE.test(p.s))
+  for (const p of [...pieces.filter((x) => !SUPERSCRIPT_RE.test(x.s)), ...supers]) {
     if (!p.s) continue
+    if (SUPERSCRIPT_RE.test(p.s)) {
+      const host = rows.find((r) => r.h > (p.h || 0) * 1.15 && p.y > r.y && p.y - r.y < r.h * 0.9
+        && r.parts.some((q) => Math.abs(q.x + (q.w || 0) - p.x) < r.h * 0.6 && /\d$/.test(q.s)))
+      if (host) {
+        host.parts.push({ ...p, y: host.y })
+        continue
+      }
+    }
     let row = rows.find((r) => Math.abs(r.y - p.y) < Math.max(2, Math.min(r.h, p.h || r.h) * 0.4))
     if (!row) {
       row = { y: p.y, h: p.h || 10, parts: [] }
@@ -79,6 +93,12 @@ export function pageLayout(pieces: TextPiece[], view: number[], ocr = false): Pa
  * En-têtes et pieds de page (« Titre – by … », « Page 3 of 4 ») : fragments au même endroit sur
  * la plupart des pages, retirés avant de reconstituer les lignes.
  */
+/** En-têtes et pieds de page répétés (l'inverse de removeRunningPieces). */
+function runningPieces(pages: TextPiece[][]): TextPiece[][] {
+  const kept = removeRunningPieces(pages)
+  return pages.map((page, i) => page.filter((p) => !kept[i].includes(p)))
+}
+
 export function removeRunningPieces(pages: TextPiece[][]): TextPiece[][] {
   if (pages.length < 3) return pages
   const key = (p: TextPiece) => `${Math.round(p.y / 4)}|${p.s.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().toLowerCase()}`
@@ -148,7 +168,20 @@ async function renderPage(page: PdfPage, scale: number): Promise<HTMLCanvasEleme
 
 const textChars = (pieces: TextPiece[]) => pieces.reduce((n, p) => n + p.s.trim().length, 0)
 
+/**
+ * Texte illisible : une police sans table de caractères donne « !"#$%&'() » au lieu des lettres.
+ * Moins de la moitié de lettres et de chiffres parmi les caractères visibles.
+ */
+export function garbledText(pieces: TextPiece[]): boolean {
+  const visible = pieces.map((p) => p.s).join('').replace(/\s+/g, '')
+  if (visible.length < SCANNED_CHARS) return false
+  const readable = visible.match(/[\p{L}\p{N}]/gu)?.length ?? 0
+  return readable / visible.length < 0.5
+}
+
 const MAX_PHOTOS = 6
+/** part de la page qu'occupe au moins une photo de l'ouvrage (pas un logo, une icône) */
+const PHOTO_AREA = 0.035
 const PHOTO_PAGES = 12
 
 type Matrix = [number, number, number, number, number, number]
@@ -159,12 +192,16 @@ const multiply = (m: Matrix, n: Matrix): Matrix => [
 ]
 
 /** Nom de patron à partir des métadonnées, du plus grand texte de la page 1, ou du nom du fichier. */
-export function pdfTitle(metaTitle: string | null | undefined, firstPage: TextPiece[], fileName?: string | null): string | null {
+export function pdfTitle(metaTitle: string | null | undefined, firstPage: TextPiece[], fileName?: string | null, header: TextPiece[] = []): string | null {
   const clean = (s: string) => s
     .replace(/\.pdf$/i, '').replace(/[_]+/g, ' ')
-    // « Titre – by Adriana Gori », « Titre - par Moi »
-    .replace(/\s+[-–—]\s+(?:by|par|de)\s.*$/i, '')
-    .replace(/\b(?:pattern|patron|pdf|tuto(?:riel)?|crochet|free|gratuit|eng?|fr|v\d+)\b/gi, ' ')
+    // « Titre – by Adriana Gori », « Titre - par Moi », « TITRE | Designed by … » (deux cellules d'une ligne)
+    .replace(/\s*\|.*$/, '')
+    .replace(/\s+(?:[-–—]\s+)?(?:designed\s+by|by|par)\s.*$/i, '')
+    .replace(/\s+[-–—]\s+de\s.*$/i, '')
+    .replace(/\b(?:pattern|patron|pdf|tuto(?:riel)?|crochet|free|gratuit|eng?|fr|v\d+)\b(?!-)/gi, ' ')
+    // numéro de page d'un en-tête (« … WEEK 1 1 of 5 »)
+    .replace(/\s+\d+\s+(?:of|sur|de)\s+\d+\s*$/i, '')
     .replace(/[-–—|]+\s*$/, '').replace(/\s+/g, ' ').trim()
   // un titre lisible : des mots, pas « P a t t e r n » ni « Microsoft Word - doc1 »
   const readable = (s: string) => {
@@ -174,12 +211,20 @@ export function pdfTitle(metaTitle: string | null | undefined, firstPage: TextPi
   }
   const meta = clean(metaTitle ?? '')
   if (readable(meta)) return meta
-  const big = firstPage.filter((p) => p.s.trim()).sort((a, b) => (b.h || 0) - (a.h || 0))
-  if (big.length) {
+  // le plus grand texte de la page, s'il fait un titre : pas une phrase ni un paragraphe (citation en grand)
+  const largest = (pieces: TextPiece[]) => {
+    const big = pieces.filter((p) => p.s.trim()).sort((a, b) => (b.h || 0) - (a.h || 0))
+    if (!big.length) return null
     const top = big[0].h || 0
-    const line = pageLines(big.filter((p) => (p.h || 0) >= top * 0.9)).map(clean).find(readable)
-    if (line) return line
+    const lines = pageLines(big.filter((p) => (p.h || 0) >= top * 0.9)).map(clean)
+    const sentence = (l: string) => /[.!?]\s+\S/.test(l) || /^["“«'’]/.test(l) || l.split(/\s+/).length > 8
+    return lines.length <= 2 ? lines.find((l) => readable(l) && !sentence(l)) ?? null : null
   }
+  const line = largest(firstPage)
+  if (line) return line
+  // titre répété en en-tête de chaque page (« TUNA & BONES STUFFIES CROCHET-ALONG: WEEK 1 1 of 5 »)
+  const repeated = largest(header)
+  if (repeated) return repeated
   const file = clean(fileName ?? '')
   return readable(file) ? file : null
 }
@@ -324,7 +369,7 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
             } else if (fn === pdfjs.OPS.paintFormXObjectEnd) ctm = stack.pop() ?? ctm
             else if (fn === pdfjs.OPS.paintImageXObject || fn === pdfjs.OPS.paintImageXObjectRepeat) {
               const area = Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
-              if (typeof args?.[0] === 'string' && area >= pageArea * 0.06) found.push({ name: args[0], area, full: area >= pageArea * 0.8 })
+              if (typeof args?.[0] === 'string' && area >= pageArea * PHOTO_AREA) found.push({ name: args[0], area, full: area >= pageArea * 0.8 })
             }
           }
           for (const { name, full } of found.sort((a, b) => b.area - a.area)) {
@@ -345,10 +390,13 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
     }
     // PDF scanné (presque pas de texte dans tout le document, pas seulement des pages de photos) :
     // ses pages sans texte sont lues par OCR
+    // pages au texte illisible (police sans table de caractères) : lues par OCR, leur texte écarté
+    const garbled = new Set(pages.map((p, i) => (garbledText(p) ? i : -1)).filter((i) => i >= 0))
     const scanned = options.ocrOnly ? pages.map((_, i) => i).slice(0, OCR_PAGES)
-      : pages.map((p, i) => (textChars(p) < SCANNED_CHARS ? i : -1)).filter((i) => i >= 0).slice(0, OCR_PAGES)
+      : pages.map((p, i) => (textChars(p) < SCANNED_CHARS || garbled.has(i) ? i : -1)).filter((i) => i >= 0).slice(0, OCR_PAGES)
     if (options.ocrOnly) for (const i of scanned) pages[i] = []
-    if (scanned.length && (options.ocrOnly || textChars(pages.flat()) < SCANNED_DOC_CHARS * pages.length)) {
+    for (const i of garbled) pages[i] = []
+    if (scanned.length && (options.ocrOnly || garbled.size > 0 || textChars(pages.flat()) < SCANNED_DOC_CHARS * pages.length)) {
       let at = 1
       const report = (progress: number) => options.onProgress?.({ page: at, pages: scanned.length, progress })
       report(0)
@@ -392,7 +440,7 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
   // titre lu sur la page 1 sans les en-têtes répétés
   // un scan pleine page n'est pas une photo de l'ouvrage
   const kept = photos.filter((p) => !(ocr && p.full && textChars(pages[p.page - 1]) >= SCANNED_CHARS)).map((p) => p.blob)
-  return { text: piecesToText(pages, ocrPages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr,
+  return { text: countTableRounds(joinWrappedRounds(stripPhotoRefs(piecesToText(pages, ocrPages)))), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName, runningPieces(pages)[0] ?? []), photos: kept, pages: previews, ocr,
     layout: previews.map((_, i) => pageLayout(pages[i] ?? [], views[i] ?? [0, 0, 595, 842], ocrPages.has(i))) }
 }
 
@@ -444,7 +492,12 @@ export function readingBlocks(pieces: TextPiece[], depth = 0, words = false): Te
     const table = aligned > 0.7 && (short(left, /^(?:\p{L}{0,8}\.?\s*)?\d{1,3}(?:\s*[-–&]\s*\d{1,3})?\s*[:.]?$/u) > 0.6 || short(right, /^\(?\d{1,4}\)?$/) > 0.6)
     // deux vraies colonnes (pas « R1: » aligné à gauche de ses instructions)
     if (enough && !table && extent(left) >= 60 && extent(right) >= 60) {
-      return [...readingBlocks(left, depth + 1, words), ...readingBlocks(right, depth + 1, words)]
+      // encadré en bas à gauche (« Follow me! ») à côté d'une colonne qui commence en haut : la
+      // colonne d'abord (l'encadré commence sous le milieu de la colonne)
+      const top = (l: TextPiece[]) => Math.max(...l.map((p) => p.y))
+      const middle = (l: TextPiece[]) => (top(l) + Math.min(...l.map((p) => p.y))) / 2
+      const first = top(left) < middle(right) ? [right, left] : [left, right]
+      return first.flatMap((b) => readingBlocks(b, depth + 1, words))
     }
   }
   const g = widestGap(items.map((p) => [p.y, p.y + (p.h || 10)]), h * 0.6)
@@ -505,6 +558,8 @@ const STITCH_WORD = String.raw`(?:aug|dim|inc|dec|sc|ms|mc|ml|ch|db|br|hdc|dc|tr
  */
 export function cleanOcrLine(line: string): string {
   let l = line
+    // bordure pointillée d'un encadré, lue « : » ou « | » au début et à la fin de chaque ligne
+    .replace(/^[:|;]+(?:\s*[:|;]+)*\s+(.*?)\s+[:|;]+(?:\s*[:|;]+)*$/, '$1')
     // puces devant un rang
     .replace(/^(?:[+o°•*·»«>~=©®-]+\s*)+(?=R\S{0,3}\s*:|[|!I]\s*:|:|R\s?\d|\d)/, '')
     // « RI-6 : », « Rl2 : » : 1 lu comme I, l, | ou ! dans un numéro de rang
