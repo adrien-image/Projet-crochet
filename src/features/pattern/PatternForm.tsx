@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FileSearch, ListChecks, Paperclip, Plus, Star, Trash2 } from 'lucide-react'
+import { FileSearch, ListChecks, Paperclip, Plus, ScanText, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
@@ -63,12 +63,13 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
    * Remplit le patron avec le contenu du PDF (pdf.js n'est chargé qu'à ce moment-là) : texte, nom,
    * crochet et fil pour les champs encore vides, et ses photos si l'ouvrage n'en a pas encore.
    */
-  const extractFromPdf = async (blob: Blob, replace: boolean, fileName?: string | null) => {
+  const extractFromPdf = async (blob: Blob, replace: boolean, fileName?: string | null, ocrOnly = false) => {
     setBusy(t('Lecture du PDF…'))
     setError('')
     try {
       const { extractPdf } = await import('../../storage/pdfText')
       const pdf = await extractPdf(blob, fileName, {
+        ocrOnly,
         onProgress: ({ page, pages, progress }) => setBusy(t('Lecture du scan : page {p}/{n} ({c} %)', { p: page, n: pages, c: Math.round(progress * 100) })),
       })
       setPreviews({ pages: pdf.pages, ocr: pdf.ocr })
@@ -95,7 +96,8 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       const n = parsePattern(extracted).length
       const read = n ? tn(n, 'Texte extrait du PDF : {n} rang reconnu. Vérifiez-le avant d\'enregistrer.', 'Texte extrait du PDF : {n} rangs reconnus. Vérifiez-les avant d\'enregistrer.')
         : t('Texte extrait du PDF, mais aucun rang reconnu : vérifiez la mise en forme (un rang par ligne).')
-      const message = pdf.ocr ? `${t('PDF scanné : texte lu par reconnaissance de caractères.')} ${read}` : read
+      const message = !pdf.ocr ? read
+        : `${ocrOnly ? t('Texte lu par reconnaissance de caractères.') : t('PDF scanné : texte lu par reconnaissance de caractères.')} ${read}`
       setInfo(imported ? `${message} ${tn(imported, '{n} photo importée.', '{n} photos importées.')}` : message)
     } catch (e) {
       console.warn(e)
@@ -127,9 +129,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
     }
   }
 
-  const extractAgain = async () => {
+  const extractAgain = async (ocrOnly = false) => {
     const blob = file.fileId ? await getAsset(file.fileId) : null
-    if (blob) await extractFromPdf(blob, !text.trim(), file.fileName)
+    if (blob) await extractFromPdf(blob, !text.trim(), file.fileName, ocrOnly)
   }
 
   /** vérification ligne par ligne, avec les pages du PDF joint (dessinées à la demande) */
@@ -286,7 +288,13 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
                     <input type="file" accept=".pdf,image/*,.txt,text/plain" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
                   </label>
                   {isPdf && file.fileId && (
-                    <button type="button" className="btn ghost sm" onClick={extractAgain} disabled={!!busy}><FileSearch size={15} /> {t('Extraire le texte')}</button>
+                    <button type="button" className="btn ghost sm" onClick={() => extractAgain()} disabled={!!busy}><FileSearch size={15} /> {t('Extraire le texte')}</button>
+                  )}
+                  {isPdf && file.fileId && (
+                    <button type="button" className="btn ghost sm" onClick={() => extractAgain(true)} disabled={!!busy}
+                      title={t('Pour un PDF dont le texte extrait est illisible : chaque page est lue comme une image.')}>
+                      <ScanText size={15} /> {t('Lire par OCR')}
+                    </button>
                   )}
                   {(file.fileId || file.fileData) && (
                     <button type="button" className="btn ghost sm danger" onClick={() => { setFile({ fileId: null, fileName: null, fileType: null, fileData: null }); setPreviews(null) }}><Trash2 size={15} /> {t('Retirer')}</button>

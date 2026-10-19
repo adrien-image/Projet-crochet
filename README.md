@@ -26,7 +26,10 @@ fonctionne hors connexion.
   dans l'ordre de lecture même en plusieurs colonnes, sans les en-têtes / pieds de page répétés ; nom
   (métadonnées, grand titre ou nom du fichier), crochet et fil pré-remplis ; **les photos de l'ouvrage
   sont importées** (couverture + galerie, sans les fonds de page ni les logos) ; **PDF scannés lus par
-  OCR** (Tesseract.js, français et anglais, servi par l'application et chargé seulement pour un scan) ;
+  OCR** (Tesseract.js, français et anglais, servi par l'application et chargé seulement pour un scan),
+  avec correction des erreurs de lecture courantes (« | aug » pour « 1 aug », « R3% » pour « R34 »,
+  numéros de rang illisibles déduits de la suite) ; bouton « Lire par OCR » pour un PDF dont le texte
+  extrait est illisible ;
   **écran de vérification** : les pages du PDF à côté des lignes reconnues, rangs dont le compte ne
   tombe pas juste signalés, chaque ligne corrigeable sur place
 - **Fils à prévoir** : pour chaque couleur, son nom dans le patron, les pièces concernées, la longueur

@@ -6,6 +6,7 @@ import { estimateYarn } from '../src/domain/yarn'
 import { outlineText, parsePattern } from '../src/domain/parser'
 import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
+import { cleanOcrLine, ocrLabels, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 
 const ball = 'BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R6 : 18 ms (18)\nR7 : *1 ms, dim* x6 (12)\nR8 : 6 dim (6)'
 
@@ -71,4 +72,31 @@ test('encombrement du modèle 3D : boîte englobante des pièces placées', () =
   const { min, max } = modelExtent(model.parts)
   const size = [0, 1, 2].map((k) => max[k] - min[k])
   expect(size.every((s) => s > 0 && Number.isFinite(s))).toBe(true)
+})
+
+test('OCR : erreurs de lecture courantes corrigées', () => {
+  expect(cleanOcrLine('R3: | aug, 6% ma, I aug, ch l, tourne (%8)')).toBe('R3: 1 aug, 64 ms, 1 aug, ch 1, tourne (48)')
+  expect(cleanOcrLine('4to7—18sc(4rows)')).toBe('4 to 7 – 18 sc (4 rows)')
+  expect(cleanOcrLine('2 —6 inc (12)')).toBe('2 – 6 inc (12)')
+  expect(cleanOcrLine('21-24sc')).toBe('21 – 24 sc')
+  expect(cleanOcrLine('1 – 6 scintoa magicring(6)')).toBe('1 – 6 sc into a magic ring (6)')
+  expect(cleanOcrLine('o R12 : 1 aug, % ms (8)')).toBe('R12 : 1 aug, 4 ms (8)')
+  expect(cleanOcrLine('© RI-6 : 32 ms')).toBe('R1-6 : 32 ms')
+  // le texte courant n'est pas touché
+  expect(cleanOcrLine('I like this pattern, 4-6 hours of work')).toBe('I like this pattern, 4-6 hours of work')
+})
+
+test('OCR : numéros de rang illisibles déduits du rang précédent', () => {
+  const labels = ocrLabels()
+  expect(['Ri : ch 2, 1 aug', ': 2 aug, ch 1', 'RS : 1 aug, 2 ms', 'R4 : 1 aug, 4 ms', '| : 1 aug, 6 ms', 'Coupe le fil :', 'RIO : 1 aug, 8 ms'].map(labels))
+    .toEqual(['R1 : ch 2, 1 aug', 'R2 : 2 aug, ch 1', 'R3 : 1 aug, 2 ms', 'R4 : 1 aug, 4 ms', 'R5 : 1 aug, 6 ms', 'Coupe le fil :', 'R6 : 1 aug, 8 ms'])
+})
+
+test('OCR : des mots espacés ne sont pas pris pour deux colonnes', () => {
+  // une seule colonne de rangs, écrite large (mots isolés, espaces de 7 pt pour une police de 12)
+  const rows = Array.from({ length: 6 }, (_, i) => [`R${i + 1}:`, '1', 'aug,', `${2 * i}`, 'ms'].map((s, k) => ({ s, x: 50 + k * 41, y: 700 - i * 20, w: 34, h: 12 })))
+  const pieces: TextPiece[] = rows.flat()
+  // aucun rang coupé en deux
+  expect(readingBlocks(pieces, 0, true).every((b) => b.length % 5 === 0)).toBe(true)
+  expect(piecesToText([pieces], new Set([0])).split('\n')[0]).toBe('R1: 1 aug, 0 ms')
 })
