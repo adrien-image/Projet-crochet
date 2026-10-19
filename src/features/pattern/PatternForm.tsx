@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FileSearch, ListChecks, Paperclip, Plus, ScanText, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
 import type { PageLayout } from '../../storage/pdfText'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
 import { guessPatternInfo } from '../../domain/patternInfo'
-import { t, tn } from '../../i18n'
+import { getLang, t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { photoFields, photosOf, type PhotoRef } from './actions'
 import { PHOTO_LIMIT, uploadPhotos } from './photoUpload'
 import { PhotoImage } from './PhotoGallery'
 import { ImportReview } from './ImportReview'
+import { TextAssist } from './TextAssist'
+import { firstSuggestion } from './typingHelp'
 
 const MAX_FILE_MB = 25
 
@@ -43,7 +45,20 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
 
   const sizes = useMemo(() => detectSizes(text), [text])
   const effectiveSize = Math.min(size, sizes - 1)
-  const stats = useMemo(() => patternStats(parsePattern(text, { notation, size: effectiveSize })), [text, notation, effectiveSize])
+  const parsed = useMemo(() => parsePattern(text, { notation, size: effectiveSize }), [text, notation, effectiveSize])
+  const stats = patternStats(parsed)
+  // aide à la saisie : position du curseur dans le texte du patron
+  const area = useRef<HTMLTextAreaElement>(null)
+  const [caret, setCaret] = useState<number | null>(null)
+  const insertText = (from: number, to: number, insert: string) => {
+    setText((cur) => cur.slice(0, from) + insert + cur.slice(to))
+    const at = from + insert.length
+    setCaret(at)
+    requestAnimationFrame(() => {
+      area.current?.focus()
+      area.current?.setSelectionRange(at, at)
+    })
+  }
   const isPdf = file.fileType === 'application/pdf' || /\.pdf$/i.test(file.fileName ?? '')
 
   const room = PHOTO_LIMIT - photos.length
@@ -212,8 +227,19 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
           <legend>{t('Instructions')}</legend>
           <div className="field">
             <label htmlFor="f-text">{t('Texte du patron')}</label>
-            <textarea id="f-text" className="input mono" value={text} onChange={(e) => setText(e.target.value)} rows={10}
+            <textarea id="f-text" ref={area} className="input mono" value={text} rows={10}
+              onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onBlur={() => setCaret(null)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Tab' || e.shiftKey || caret == null) return
+                const s = firstSuggestion(text, caret, getLang() === 'en' ? 'eng' : 'fra')
+                if (!s) return
+                e.preventDefault()
+                insertText(s.from, caret, s.insert)
+              }}
               placeholder={t('Un rang par ligne, pièces en MAJUSCULES :\nTÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : aug dans chaque maille (12)\nR3 : *1 ms, aug* x6 (18)')} />
+            {caret != null && <TextAssist text={text} caret={caret} rounds={parsed} onInsert={insertText} />}
             <p className={`analysis ${stats.rounds === 0 ? '' : stats.invalid + stats.misfit > 0 ? 'warn' : 'ok'}`} aria-live="polite">
               {stats.rounds === 0
                 ? t('Aucun rang reconnu pour l\'instant — format « R1 : 6 ms (6) », un rang par ligne. Vous pouvez aussi joindre le PDF du patron.')

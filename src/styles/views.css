@@ -549,3 +549,12 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 .hands-free { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
 .hands-free h3 { margin: 0; font-size: 0.95rem; }
 .hands-free .switch span svg { vertical-align: -2px; }
+
+/* Aide à la saisie du patron */
+.text-assist { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.82rem; padding: 6px 2px 2px; }
+.ta-line { color: var(--ink-3); }
+.ta-line.ok strong { color: var(--success); }
+.ta-line.warn { color: var(--warn); }
+.ta-words { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.ta-words .chip { cursor: pointer; font-family: var(--font-mono, ui-monospace, monospace); }
+.text-assist .btn { margin-left: auto; }

@@ -376,6 +376,27 @@ test('compteur mains libres : casque / montre et voix', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { media: object }).media).length)).toBe(0)
 })
 
+test('saisie du patron : compte de la ligne, abréviations, rang suivant', async ({ page }) => {
+  await home(page)
+  await page.getByRole('button', { name: /Nouveau patron/ }).click()
+  const form = page.getByRole('dialog', { name: 'Nouveau patron' })
+  const area = form.getByLabel('Texte du patron')
+  await area.click()
+  await area.pressSequentially('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 a')
+  const assist = form.locator('.text-assist')
+  await expect(assist.locator('.ta-words .chip').first()).toHaveText('aug')
+  await page.keyboard.press('Tab')
+  await expect(area).toHaveValue(/R2 : 6 aug $/)
+  await expect(area).toBeFocused()
+  await area.pressSequentially('(12)')
+  await expect(assist.locator('.ta-line')).toContainText('R2 · 12 mailles ✓')
+  await assist.getByRole('button', { name: 'Rang suivant (R3)' }).click()
+  await expect(area).toHaveValue(/\(12\)\nR3 : $/)
+  await area.pressSequentially('*1 ms, aug* x6 (20)')
+  await expect(assist.locator('.ta-line')).toHaveClass(/warn/)
+  await expect(assist.locator('.ta-line')).toContainText('18 mailles calculées, 20 annoncées')
+})
+
 test('3D : placement manuel d\'une oreille, symétrique, réinitialisation', async ({ page }) => {
   await home(page)
   await openMouse(page)

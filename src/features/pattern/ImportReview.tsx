@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, ArrowDown, Check } from 'lucide-react'
-import type { Notation, Round } from '../../domain/types'
+import type { Notation } from '../../domain/types'
 import { parsePattern, patternStats } from '../../domain/parser'
 import { t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { textLines } from './textLines'
+import { roundIssue } from './roundIssue'
 import { findOnPages, occurrenceOf, type PageSpot } from './pageMatch'
 import type { PageLayout } from '../../storage/pdfText'
 
@@ -21,13 +22,6 @@ interface Props {
   ocr?: boolean
   onChange: (text: string) => void
   onClose: () => void
-}
-
-/** Problème d'un rang : compte annoncé différent, ou rang qui ne prend pas toutes les mailles du précédent. */
-function roundIssue(r: Round): string | null {
-  if (!r.valid && r.expected != null) return t('⚠ {c} mailles calculées, {e} annoncées', { c: r.count, e: r.expected })
-  if (r.fits === false) return t('⚠ Ce rang se travaille sur {c} mailles, le rang précédent en compte {p}.', { c: r.consumed, p: r.prevCount ?? 0 })
-  return null
 }
 
 /**

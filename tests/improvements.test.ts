@@ -10,6 +10,7 @@ import { patternLanguage } from '../src/domain/language'
 import { voiceCommands } from '../src/domain/voice'
 import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
+import { lineAt, nextRoundPrefix, suggestions, wordBefore } from '../src/features/pattern/typingHelp'
 
 const ball = 'BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R6 : 18 ms (18)\nR7 : *1 ms, dim* x6 (12)\nR8 : 6 dim (6)'
 
@@ -149,4 +150,19 @@ test('commandes vocales du compteur, en français et en anglais', () => {
   expect(voiceCommands('stitch stitch next row')).toEqual(['add', 'add', 'finish'])
   expect(voiceCommands('undo')).toEqual(['remove'])
   expect(voiceCommands('il fait beau')).toEqual([])
+})
+
+test('aide à la saisie : mot en cours, abréviations, rang suivant', () => {
+  expect(wordBefore('R1 : 6 ms, au', 13)).toEqual({ start: 11, word: 'au' })
+  expect(suggestions('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : 1 ms, aug', 'a', 'eng')).toEqual(['aug', 'anneau magique'])
+  expect(suggestions('', 'ma', 'eng')).toEqual(['magic ring'])
+  expect(suggestions('', 'sc', 'eng')).toEqual([])
+  const text = 'TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2-R3 : 6 aug (12)\n'
+  expect(nextRoundPrefix(text, 3, parsePattern(text))).toBe('R4 : ')
+  const en = 'Head\nRnd 1: 6 sc in a magic ring (6)\nRnd 2: 6 inc (12)\n'
+  expect(nextRoundPrefix(en, 3, parsePattern(en))).toBe('Rnd 3: ')
+  const bare = 'Body\n1 – 6 sc into a magic ring (6)\n2 – 6 inc (12)\n'
+  expect(nextRoundPrefix(bare, 3, parsePattern(bare))).toBe('3 – ')
+  expect(nextRoundPrefix('Rien', 0, [])).toBeNull()
+  expect(lineAt('a\nb\nc', 3)).toBe(1)
 })
