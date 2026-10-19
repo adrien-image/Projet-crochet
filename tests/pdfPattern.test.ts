@@ -101,10 +101,12 @@ const piece = (s: string, x: number, y: number, w = s.length * 5, h = 10): TextP
 test('PDF : lignes reconstituées, colonnes séparées, en-têtes répétés retirés', () => {
   // un rang à gauche, une légende de photo loin à droite sur la même ligne
   expect(pageLines([piece('36 –', 50, 700), piece('36 sc', 75, 700), piece('After row 35 –', 400, 701)]))
-    .toEqual(['36 – 36 sc', 'After row 35 –'])
+    .toEqual(['36 – 36 sc | After row 35 –'])
   // même séparées par l'« espace » géante que pdf.js insère entre deux colonnes
   expect(pageLines([piece('4 to 6 - 18 sc', 50, 700, 70), piece(' ', 120, 700, 260), piece('After row 6 -', 380, 700)]))
-    .toEqual(['4 to 6 - 18 sc', 'After row 6 -'])
+    .toEqual(['4 to 6 - 18 sc | After row 6 -'])
+  // le parseur garde le rang et laisse la légende
+  expect(parsePattern('Leg\n1 – 6 sc into a magic ring (6)\n2 – 12 sc | After row 1 –')[1].text).toBe('2 – 12 sc')
   // fragments collés (sans espace) ou séparés
   expect(pageLines([piece('Hel', 50, 600, 15), piece('lo', 65, 600, 10), piece('world', 80, 600)])).toEqual(['Hello world'])
   const header = (n: number) => [piece('Little dragon – by Me', 50, 800), piece(`Page ${n} of 3`, 400, 800)]

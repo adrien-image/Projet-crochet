@@ -18,6 +18,16 @@ const BASE_MAP: Record<string, StitchType> = {
   sc3tog: 'dec3', hdc3tog: 'dec3', dc3tog: 'dec3',
   inc3: 'inc3', aug3: 'inc3', dec3: 'dec3', dim3: 'dec3',
   ch: 'ch', chain: 'ch',
+  // ES : punto bajo, punto alto, medio punto alto, punto deslizado, cadeneta, aumento, disminución
+  pb: 'sc', pa: 'dc', mpa: 'hdc', pd: 'sl', pr: 'sl', cad: 'ch', cadeneta: 'ch', aum: 'inc', aumento: 'inc', dism: 'dec', dis: 'dec', disminucion: 'dec',
+  // PT : ponto baixo, ponto alto, meio ponto alto, ponto baixíssimo, correntinha
+  pbx: 'sl', corr: 'ch', correntinha: 'ch', dim2: 'dec',
+  // DE : feste Masche, Stäbchen, halbes Stäbchen, Kettmasche, Luftmasche, zunehmen, abnehmen
+  fm: 'sc', stb: 'dc', hstb: 'hdc', dstb: 'tr', kettm: 'sl', km: 'sl', lm: 'ch', zun: 'inc', zunahme: 'inc', abn: 'dec', abnahme: 'dec',
+  // IT : maglia bassa, maglia alta, mezza maglia alta, maglia bassissima, catenella
+  mb: 'sc', ma: 'dc', mma: 'hdc', mbss: 'sl', cat: 'ch', catenella: 'ch',
+  // NL : vaste, stokje, half stokje, halve vaste, losse, meerderen, minderen
+  vaste: 'sc', stk: 'dc', hstk: 'hdc', hv: 'sl', losse: 'ch', meerd: 'inc', meerderen: 'inc', mind: 'dec', minderen: 'dec',
 }
 
 // Termes UK : « dc » UK = maille serrée, « tr » UK = bride…
@@ -102,7 +112,26 @@ const PHRASES: [RegExp, string][] = [
   [/half\s+double\s+crochets?/gi, 'hdc'],
   [/double\s+crochets?/gi, 'dc'],
   [/invisible\s+dec(?:rease)?s?/gi, 'invdec'],
-  [/\b(?:anneau|cercle)\s+magique\b|\bmagic\s+(?:ring|circle|loop)\b/gi, ''],
+  [/\b(?:anneau|cercle)\s+magique\b|\bmagic\s+(?:ring|circle|loop)\b|\banillo\s+m[áa]gico\b|\banel\s+m[áa]gico\b|\banello\s+magico\b|\bmagischer?\s+(?:ring|kreis)\b|\bfadenring\b|\bmagische\s+ring\b/gi, ''],
+  // formes longues des autres langues → abréviations du dictionnaire
+  [/\bmedio\s+punto\s+alto\b|\bmeio\s+ponto\s+alto\b/gi, 'mpa'],
+  [/\bpuntos?\s+bajos?\b|\bpontos?\s+baixos?\b/gi, 'pb'],
+  [/\bpuntos?\s+altos?\b|\bpontos?\s+altos?\b/gi, 'pa'],
+  [/\bpuntos?\s+(?:deslizados?|enanos?)\b|\bpontos?\s+baix[íi]ssimos?\b/gi, 'pd'],
+  // « jede M verdoppeln » : une augmentation dans chaque maille
+  [/\b(?:jede|alle)\s+m(?:aschen?)?\s+verdoppel\w*/gi, 'zun in jede M'],
+  [/\bfeste[n]?\s+maschen?\b/gi, 'fm'],
+  [/\bhalbe[ns]?\s+st[äa]bchen\b/gi, 'hstb'],
+  [/\bst[äa]bchen\b/gi, 'stb'],
+  [/\bluftmaschen?\b/gi, 'lm'],
+  [/\bkettmaschen?\b/gi, 'km'],
+  [/\bmezz[ae]\s+magli[ae]\s+alt[ae]\b/gi, 'mma'],
+  [/\bmagli[ae]\s+bassissim[ae]\b/gi, 'mbss'],
+  [/\bmagli[ae]\s+bass[ae]\b/gi, 'mb'],
+  [/\bmagli[ae]\s+alt[ae]\b/gi, 'ma'],
+  [/\bhalf\s+stokjes?\b/gi, 'hstk'],
+  [/\bstokjes?\b/gi, 'stk'],
+  [/\bhalve\s+vasten?\b/gi, 'hv'],
   // répétition US à une seule étoile : « *sc, inc; rep from * 5 more times »
   [/\*([^*]+?)[;,]?\s*(?:rep(?:eat)?|r[ée]p[ée]ter|r[ée]p)\.?\s+(?:from|depuis|[àa]\s+partir\s+de|de)\s+\*/gi, '*$1* rep '],
   // « 3 ms dans la même maille » = augmentation triple
@@ -158,7 +187,7 @@ function parseTokens(str: string, out: StitchType[], map: Record<string, StitchT
 }
 
 const OPENERS: Record<string, string> = { '*': '*', '(': ')', '[': ']' }
-const MULT_RE = /^\s*[,;]?\s*(?:(?:x|×)\s*(\d+)|(\d+)\s*(?:x|×|fois|times)(?![a-z])|(?:r[ée]p[ée]ter|repeat|rep|r[ée]p)\.?\s+(encore\s+)?(\d+)\s*(more\s+times|more|fois\s+de\s+plus|autres\s+fois|fois|times|x)?)/i
+const MULT_RE = /^\s*[,;]?\s*(?:(?:x|×)\s*(\d+)|(\d+)\s*(?:x|×|fois|times|veces|vezes|mal|volte|keer)(?![a-z])|(?:r[ée]p[ée]ter|repeat|rep|r[ée]p)\.?\s+(encore\s+)?(\d+)\s*(more\s+times|more|fois\s+de\s+plus|autres\s+fois|fois|times|x)?)/i
 
 // « x6 » → 6 ; « rep 5 more times » / « répéter encore 5 fois » → 6 au total
 function multiplier(m: RegExpMatchArray) {
@@ -223,7 +252,8 @@ function splitTopLevel(str: string) {
   return parts
 }
 
-const ROUND_WORD = '(?:rounds?|rangs?|rnds?|rows?|rds?|rgs?|tours?|r)'
+// FR, EN, ES (vuelta, hilera), PT (carreira, volta), DE (Runde, Reihe), IT (giro), NL (toer)
+const ROUND_WORD = '(?:rounds?|rangs?|rnds?|rows?|rds?|rgs?|tours?|vueltas?|vtas?|hileras?|carreiras?|carr|voltas?|runden?|reihen?|giros?|toer(?:en)?|r|v|g|t)'
 const ROUND_RE = new RegExp(
   `^\\s*[-•·]?\\s*(${ROUND_WORD})\\.?\\s*(\\d+)` +
   // plages « R4-R6 », « Rangs 4 à 6 », « R14 & 15 », « Rnds 3 and 4 »
@@ -232,8 +262,8 @@ const ROUND_RE = new RegExp(
   'i',
 )
 // « (18) », « = 16 sc », « = 54 sc in each rnd. » (en fin de rang)
-const COUNT_RE = /(?:[([]\s*(\d+)\s*(?:m(?:ailles)?|ms|sts?|stitches)?\.?\s*[)\]]|[=→]\s*(\d+)\s*(?:[a-zà-ÿ]{1,9}\.?)?(?:\s+(?:in|en|dans)\s+(?:e\s?ach|every|chaque)\s+(?:rnds?|rounds?|rows?|rangs?|tours?))?)\s*[.;]?\s*$/i
-const EACH_STITCH_RE = /(?:(?:\b(?:dans|sur)|(?:^|\s)[àa])\s+(?:chaque|toutes\s+les)\s+(?:mailles?|points?|m)\b(?:\s+(?:suivantes?|du\s+tour|du\s+rang|autour))?|\btout\s+(?:le\s+)?(?:tour|autour)\b|\bautour\b|\b(?:in|into)\s+(?:each|every)\s+(?:st(?:itch)?|sp|sc)\b(?:\s+(?:around|across))?|\b(?:all\s+)?around\b|\bacross\b)/i
+const COUNT_RE = /(?:[([]\s*(\d+)\s*(?:m(?:ailles)?|ms|sts?|stitches|pb|pts?|puntos|pontos|fm|maschen|maglie|mb|steken|p)?\.?\s*[)\]]|[=→]\s*(\d+)\s*(?:[a-zà-ÿ]{1,9}\.?)?(?:\s+(?:in|en|dans)\s+(?:e\s?ach|every|chaque)\s+(?:rnds?|rounds?|rows?|rangs?|tours?))?)\s*[.;]?\s*$/i
+const EACH_STITCH_RE = /(?:(?:\b(?:dans|sur)|(?:^|\s)[àa])\s+(?:chaque|toutes\s+les)\s+(?:mailles?|points?|m)\b(?:\s+(?:suivantes?|du\s+tour|du\s+rang|autour))?|\btout\s+(?:le\s+)?(?:tour|autour)\b|\bautour\b|\b(?:in|into)\s+(?:each|every)\s+(?:st(?:itch)?|sp|sc)\b(?:\s+(?:around|across))?|\b(?:all\s+)?around\b|\bacross\b|\b(?:en|em)\s+cada\s+(?:punto|ponto|pt|p)\b|\bin\s+(?:jede|ogni|elke)\s+(?:masche|maglia|punto|steek|st|m)\b|\b(?:alrededor|rundherum|rondom)\b|\bem\s+volta\b|\btutto\s+intorno\b)/i
 const SIZES_COUNT_RE = /[([]\s*(\d+(?:\s*[,/]\s*\d+)+)\s*(?:m(?:ailles)?|ms|sts?|stitches)?\.?\s*[)\]]\s*[.;]?\s*$/i
 // « 6 (7, 8) ms » : une valeur par taille ; une seule valeur entre parenthèses doit être suivie d'une maille
 const INLINE_SIZES_RE = /(?<![x×\d*])(\d+)\s*\(\s*(\d+(?:\s*[,/]\s*\d+)+|\d+(?=\s*\)\s*[A-Za-z]))\s*\)/g
@@ -364,6 +394,26 @@ function looseSectionName(line: string): string | null {
   return s
 }
 
+const TABLE_LABEL_RE = new RegExp(`^(?:(${ROUND_WORD})\\.?\\s*)?(\\d{1,3}(?:\\s*(?:[-–—&]|to|à|and|et)\\s*\\d{1,3})?)\\s*[:.)]?$`, 'i')
+
+/**
+ * Ligne de tableau (« R1 | 6 sc in a magic ring | 6 », cellules séparées par « | » à l'extraction d'un
+ * PDF ou par des tabulations collées depuis un tableur) → « R1: 6 sc in a magic ring (6) ». Une autre
+ * ligne à cellules (rang suivi d'une légende de photo) garde sa première cellule et les cellules à mailles.
+ */
+function tableLine(line: string): string {
+  if (!line.includes('|') && !line.includes('\t')) return line
+  const cells = line.split(/\s*\|\s*|\t+/).map((c) => c.trim()).filter(Boolean)
+  if (cells.length < 2) return cells.join(' ')
+  const label = cells[0].match(TABLE_LABEL_RE)
+  if (label) {
+    const rest = cells.slice(1)
+    const count = rest.length > 1 && /^\(?\d{1,4}\)?$/.test(rest[rest.length - 1]) ? rest.pop()!.replace(/[()]/g, '') : null
+    return `${label[1] ?? 'R'}${label[2]}: ${rest.join(', ')}${count ? ` (${count})` : ''}`
+  }
+  return [cells[0], ...cells.slice(1).filter((c) => STITCH_HINT_RE.test(c))].join(' ')
+}
+
 /** Classe chaque ligne du texte : rang, titre de pièce ou texte libre. */
 function scanLines(text: string | null | undefined): ScannedLine[] {
   const out: ScannedLine[] = []
@@ -371,7 +421,7 @@ function scanLines(text: string | null | undefined): ScannedLine[] {
   let bareNext: number | null = null
   for (const raw of (text || '').split(/\r?\n/)) {
     // espaces regroupés : aucune expression ne s'emballe sur « 6 sc =1          x »
-    const line = raw.trim().replace(/\s+/g, ' ')
+    const line = tableLine(raw.trim()).replace(/\s+/g, ' ')
     if (!line) continue
     const rm = line.match(ROUND_RE)
     if (rm) {

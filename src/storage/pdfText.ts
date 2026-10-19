@@ -34,8 +34,8 @@ export function pageLines(pieces: TextPiece[]): string[] {
       if (!p.s.trim()) continue
       const gap = p.x - end
       if (cur && gap > Math.max(24, row.h * 3)) {
-        out.push(cur.trim())
-        cur = ''
+        // cellules d'un tableau, ou légende à côté d'un rang : séparées par « | » (le parseur les relit)
+        cur = `${cur.trim()} | `
       } else if (cur && gap > row.h * 0.15 && !/\s$/.test(cur) && !/^\s/.test(p.s)) {
         cur += ' '
       }
@@ -260,10 +260,17 @@ export function readingBlocks(pieces: TextPiece[], depth = 0): TextPiece[][] {
     const left = items.filter((p) => p.x + pieceWidth(p) / 2 < v.at)
     const right = items.filter((p) => p.x + pieceWidth(p) / 2 >= v.at)
     const extent = (l: TextPiece[]) => Math.max(...l.map((p) => p.x + pieceWidth(p))) - Math.min(...l.map((p) => p.x))
-    const lines = (l: TextPiece[]) => new Set(l.map((p) => Math.round(p.y / Math.max(2, h * 0.5)))).size
+    const rowOf = (p: TextPiece) => Math.round(p.y / Math.max(2, h * 0.5))
+    const lines = (l: TextPiece[]) => new Set(l.map(rowOf)).size
     const enough = v.size >= h * 1.5 || (lines(left) >= 3 && lines(right) >= 3)
+    // un tableau (« Round | Instructions | Count ») : mêmes lignes des deux côtés, et à gauche des numéros
+    // de rang ou à droite des comptes — on le lit ligne par ligne, pas colonne par colonne
+    const rightRows = new Set(right.map(rowOf))
+    const aligned = [...new Set(left.map(rowOf))].filter((r) => rightRows.has(r)).length / Math.max(1, lines(left))
+    const short = (l: TextPiece[], re: RegExp) => l.filter((p) => re.test(p.s.trim())).length / Math.max(1, l.length)
+    const table = aligned > 0.7 && (short(left, /^(?:\p{L}{0,8}\.?\s*)?\d{1,3}(?:\s*[-–&]\s*\d{1,3})?\s*[:.]?$/u) > 0.6 || short(right, /^\(?\d{1,4}\)?$/) > 0.6)
     // deux vraies colonnes (pas « R1: » aligné à gauche de ses instructions)
-    if (enough && extent(left) >= 60 && extent(right) >= 60) {
+    if (enough && !table && extent(left) >= 60 && extent(right) >= 60) {
       return [...readingBlocks(left, depth + 1), ...readingBlocks(right, depth + 1)]
     }
   }
