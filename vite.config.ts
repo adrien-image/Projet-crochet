@@ -40,7 +40,7 @@ const PUBLIC_FILES = ['manifest.webmanifest', 'favicon.svg', 'icon-192.png', 'ic
 const OCR_FILES: Record<string, string> = {
   'ocr/worker.min.js': 'node_modules/tesseract.js/dist/worker.min.js',
   ...Object.fromEntries(['', '-simd', '-relaxedsimd'].map((v) => [`ocr/core/tesseract-core${v}-lstm.wasm.js`, `node_modules/tesseract.js-core/tesseract-core${v}-lstm.wasm.js`])),
-  ...Object.fromEntries(['eng', 'fra'].map((l) => [`ocr/lang/${l}.traineddata.gz`, `node_modules/@tesseract.js-data/${l}/4.0.0_best_int/${l}.traineddata.gz`])),
+  ...Object.fromEntries(['eng', 'fra', 'spa', 'deu', 'ita', 'por', 'nld'].map((l) => [`ocr/lang/${l}.traineddata.gz`, `node_modules/@tesseract.js-data/${l}/4.0.0_best_int/${l}.traineddata.gz`])),
 }
 const ocrFiles = (base: string): Plugin => ({
   name: 'ocr-files',

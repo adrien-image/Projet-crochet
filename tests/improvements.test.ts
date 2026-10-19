@@ -6,6 +6,7 @@ import { estimateYarn } from '../src/domain/yarn'
 import { outlineText, parsePattern } from '../src/domain/parser'
 import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
+import { patternLanguage } from '../src/domain/language'
 import { cleanOcrLine, ocrLabels, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 
 const ball = 'BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R6 : 18 ms (18)\nR7 : *1 ms, dim* x6 (12)\nR8 : 6 dim (6)'
@@ -92,6 +93,12 @@ test('OCR : numéros de rang illisibles déduits du rang précédent', () => {
     .toEqual(['R1 : ch 2, 1 aug', 'R2 : 2 aug, ch 1', 'R3 : 1 aug, 2 ms', 'R4 : 1 aug, 4 ms', 'R5 : 1 aug, 6 ms', 'Coupe le fil :', 'R6 : 1 aug, 8 ms'])
 })
 
+test('OCR : un numéro illisible après les consignes d\'une nouvelle pièce repart à 1', () => {
+  const labels = ocrLabels()
+  expect(['R23: 2 sc, 1 dec (24)', 'R24: 24 sc', 'Fasten off.', 'Chest', 'Use white yarn.', 'Rl: 4 sc', 'R2: 4 sc, ch 3'].map(labels))
+    .toEqual(['R23: 2 sc, 1 dec (24)', 'R24: 24 sc', 'Fasten off.', 'Chest', 'Use white yarn.', 'R1 : 4 sc', 'R2: 4 sc, ch 3'])
+})
+
 test('OCR : des mots espacés ne sont pas pris pour deux colonnes', () => {
   // une seule colonne de rangs, écrite large (mots isolés, espaces de 7 pt pour une police de 12)
   const rows = Array.from({ length: 6 }, (_, i) => [`R${i + 1}:`, '1', 'aug,', `${2 * i}`, 'ms'].map((s, k) => ({ s, x: 50 + k * 41, y: 700 - i * 20, w: 34, h: 12 })))
@@ -99,4 +106,15 @@ test('OCR : des mots espacés ne sont pas pris pour deux colonnes', () => {
   // aucun rang coupé en deux
   expect(readingBlocks(pieces, 0, true).every((b) => b.length % 5 === 0)).toBe(true)
   expect(piecesToText([pieces], new Set([0])).split('\n')[0]).toBe('R1: 1 aug, 0 ms')
+})
+
+test('langue d\'un patron d\'après son vocabulaire (OCR)', () => {
+  expect(patternLanguage('TÊTE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)')).toBe('fra')
+  expect(patternLanguage('HEAD\nRnd 1: 6 sc in a magic ring (6)\nRnd 2: inc in each stitch (12)\nRnd 3: (sc, inc) x6 (18)')).toBe('eng')
+  expect(patternLanguage('CABEZA\nVuelta 1: 6 pb en un anillo mágico (6)\nVuelta 2: 6 aum (12)\nVuelta 3: (1 pb, aum) x6 (18)')).toBe('spa')
+  expect(patternLanguage('KOPF\nRunde 1: 6 fM in einen Fadenring (6)\nRunde 2: jede M verdoppeln (12)\nRunde 3: *1 fM, 1 zun* 6 mal (18)')).toBe('deu')
+  expect(patternLanguage('TESTA\nGiro 1: 6 mb in un anello magico (6)\nGiro 2: 6 aum (12)\nGiro 3: (1 mb, aum) x6 (18)')).toBe('ita')
+  expect(patternLanguage('CABEÇA\nCarreira 1: 6 pbx no anel mágico (6)\nCarreira 2: 6 aum (12)\nCarreira 3: (1 pbx, aum) 6 vezes (18)')).toBe('por')
+  expect(patternLanguage('HOOFD\nToer 1: 6 vaste in een magische ring (6)\nToer 2: 6 meerd (12)\nToer 3: (1 vaste, meerd) 6 keer (18)')).toBe('nld')
+  expect(patternLanguage('Bonjour')).toBeNull()
 })

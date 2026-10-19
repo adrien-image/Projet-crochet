@@ -2,6 +2,8 @@
 // Les lignes sont reconstituées à partir des positions du texte, puis nettoyées pour que
 // le parseur reconnaisse les rangs (« R1 : 6 ms… »).
 
+import { patternLanguage, type PatternLanguage } from '../domain/language'
+
 const MAX_PAGES = 80
 
 /** Fragment de texte d'une page PDF (position du coin bas gauche, largeur, taille de police). */
@@ -84,7 +86,7 @@ export interface PdfOptions {
   /** lecture des PDF scannés (OCR) : avancement */
   onProgress?: (p: PdfProgress) => void
   /** lecture des pages scannées ; par défaut Tesseract.js (chargé seulement si besoin) */
-  ocr?: (onProgress: (progress: number) => void) => Promise<import('./ocr').Ocr>
+  ocr?: (onProgress: (progress: number) => void, languages?: PatternLanguage[]) => Promise<import('./ocr').Ocr>
   /** lire toutes les pages par OCR, sans le texte du PDF (texte mal encodé, illisible) */
   ocrOnly?: boolean
 }
@@ -312,17 +314,32 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
       let at = 1
       const report = (progress: number) => options.onProgress?.({ page: at, pages: scanned.length, progress })
       report(0)
-      const engine = await (options.ocr ?? ((cb) => import('./ocr').then((m) => m.createOcr(cb))))(report)
+      const create = options.ocr ?? ((cb, languages) => import('./ocr').then((m) => m.createOcr(cb, languages)))
+      let engine = await create(report)
+      // langue du patron reconnue sur les premières pages : un patron espagnol, allemand… est relu
+      // dans sa langue
+      let decided = false
+      const before = new Map(scanned.map((i) => [i, pages[i]]))
       try {
-        for (const [k, i] of scanned.entries()) {
+        for (let k = 0; k < scanned.length; k++) {
+          const i = scanned[k]
           at = k + 1
           report(0)
           const page = await doc.getPage(i + 1)
           const canvas = await renderPage(page as unknown as PdfPage, OCR_SCALE)
           page.cleanup()
-          pages[i] = [...pages[i], ...await engine.read(canvas, OCR_SCALE)]
+          pages[i] = [...before.get(i)!, ...await engine.read(canvas, OCR_SCALE)]
           ocrPages.add(i)
           canvas.width = canvas.height = 0
+          if (decided) continue
+          const read = scanned.slice(0, k + 1).flatMap((j) => pages[j]).map((p) => p.s).join(' ')
+          const language = patternLanguage(read)
+          decided = !!language || read.length > 4000
+          if (language && language !== 'fra' && language !== 'eng') {
+            await engine.close()
+            engine = await create(report, [language, 'eng'])
+            k = -1
+          }
         }
         ocr = true
       } finally {
@@ -415,16 +432,24 @@ export function piecesToText(pages: TextPiece[][], ocrPages: ReadonlySet<number>
  */
 export function ocrLabels(): (line: string) => string {
   let last: number | null = null
+  // lignes de texte (sans mailles) depuis le dernier rang : une nouvelle pièce commence
+  let text = 0
+  const stitches = new RegExp(String.raw`\b${STITCH_WORD}\b`)
   return (line) => {
     const good = line.match(/^R\s?(\d{1,3})(?:\s*[-–à]\s*R?\s?(\d{1,3}))?\s*:/)
     if (good) {
       last = parseInt(good[2] ?? good[1], 10)
+      text = 0
       return line
     }
     const bad = line.match(/^(?:R[A-Za-z0-9%|!]{0,3}|[|!I]|)\s*:\s*(.*)$/)
-    if (!bad || !new RegExp(String.raw`\b${STITCH_WORD}\b`).test(bad[1])) return line
-    // premier rang d'une pièce : « Ri : ch 2… » juste après un titre
-    const next: number = last == null ? 1 : last + 1
+    if (!bad || !stitches.test(bad[1])) {
+      if (line.trim() && !stitches.test(line)) text++
+      return line
+    }
+    // premier rang d'une pièce : « Ri : ch 2… » juste après un titre et ses consignes
+    const next: number = last == null || text >= 2 ? 1 : last + 1
+    text = 0
     last = next
     return `R${next} : ${bad[1]}`
   }

@@ -306,6 +306,21 @@ test('PDF scanné : texte lu par OCR, puis vérifié', async ({ page }) => {
   await expect(review.getByRole('img', { name: 'Page 1' })).toBeVisible()
 })
 
+test('PDF scanné en espagnol : relu avec la langue du patron', async ({ page }) => {
+  test.setTimeout(120_000)
+  const languages: string[] = []
+  page.on('request', (r) => { const m = r.url().match(/ocr\/lang\/(\w+)\.traineddata/); if (m) languages.push(m[1]) })
+  await home(page)
+  const pdf = await makeScannedPdf(page, ['CABEZA', 'Vuelta 1: 6 pb en un anillo mágico (6)', 'Vuelta 2: 6 aum (12)', 'Vuelta 3: (1 pb, aum) x6 (18)', 'Vuelta 4: 18 pb (18)', 'Vuelta 5: (1 pb, dism) x6 (12)'])
+  await page.getByRole('button', { name: /Nouveau patron/ }).click()
+  const form = page.getByRole('dialog', { name: 'Nouveau patron' })
+  await form.getByLabel('Nom').fill('Escaneado')
+  await form.locator('input[type=file][accept*=pdf]').setInputFiles({ name: 'escaneado.pdf', mimeType: 'application/pdf', buffer: pdf })
+  await expect(form.getByRole('status')).toContainText('5 rangs reconnus', { timeout: 90_000 })
+  await expect(form.locator('.analysis').first()).toContainText('comptes cohérents')
+  expect(languages).toContain('spa')
+})
+
 test('3D : placement manuel d\'une oreille, symétrique, réinitialisation', async ({ page }) => {
   await home(page)
   await openMouse(page)
