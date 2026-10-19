@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileSearch, ListChecks, Paperclip, Plus, ScanText, Star, Trash2 } from 'lucide-react'
 import type { Notation, Pattern } from '../../domain/types'
+import type { PageLayout } from '../../storage/pdfText'
 import { getAsset, putAsset } from '../../storage/assets'
 import { parsePattern, patternStats, detectSizes, detectNotation } from '../../domain/parser'
 import { guessPatternInfo } from '../../domain/patternInfo'
@@ -37,7 +38,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   // aperçu des pages du PDF importé, et vérification ligne par ligne
-  const [previews, setPreviews] = useState<{ pages: string[], ocr: boolean } | null>(null)
+  const [previews, setPreviews] = useState<{ pages: string[], ocr: boolean, layout: PageLayout[] } | null>(null)
   const [reviewing, setReviewing] = useState(false)
 
   const sizes = useMemo(() => detectSizes(text), [text])
@@ -72,7 +73,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
         ocrOnly,
         onProgress: ({ page, pages, progress }) => setBusy(t('Lecture du scan : page {p}/{n} ({c} %)', { p: page, n: pages, c: Math.round(progress * 100) })),
       })
-      setPreviews({ pages: pdf.pages, ocr: pdf.ocr })
+      setPreviews({ pages: pdf.pages, ocr: pdf.ocr, layout: pdf.layout })
       const extracted = pdf.text
       let imported = 0
       if (pdf.photos.length && !photos.length) {
@@ -141,9 +142,9 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
       try {
         const blob = await getAsset(file.fileId)
         const { pdfPreviews } = await import('../../storage/pdfText')
-        setPreviews({ pages: blob ? await pdfPreviews(blob) : [], ocr: false })
+        setPreviews({ ...(blob ? await pdfPreviews(blob) : { pages: [], layout: [] }), ocr: false })
       } catch {
-        setPreviews({ pages: [], ocr: false })
+        setPreviews({ pages: [], layout: [], ocr: false })
       } finally {
         setBusy(null)
       }
@@ -308,7 +309,7 @@ export function PatternForm({ initial, onSave, onCancel }: Props) {
         {error && <p className="text-warn" role="alert">{error}</p>}
       </div>
       {reviewing && (
-        <ImportReview text={text} notation={notation} size={effectiveSize} pages={previews?.pages ?? []} ocr={previews?.ocr}
+        <ImportReview text={text} notation={notation} size={effectiveSize} pages={previews?.pages ?? []} layout={previews?.layout ?? []} ocr={previews?.ocr}
           onChange={setText} onClose={() => setReviewing(false)} />
       )}
     </Dialog>

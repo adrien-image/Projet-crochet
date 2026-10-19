@@ -518,7 +518,12 @@ label.btn.disabled { opacity: 0.5; pointer-events: none; }
 .review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; height: 100%; min-height: 0; }
 .review.no-pages { grid-template-columns: 1fr; }
 .review-pages { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
-.review-pages img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.review-page { position: relative; }
+.review-pages img { width: 100%; display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.review-mark {
+  position: absolute; margin: -3px; padding: 3px; box-sizing: content-box; border-radius: 4px; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); outline: 2px solid var(--accent);
+}
 .review-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .review-bar { display: flex; flex-direction: column; gap: 8px; }
 .review-lines { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; flex: 1; }

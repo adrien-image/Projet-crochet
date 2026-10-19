@@ -15,6 +15,13 @@ export interface TextPiece { s: string, x: number, y: number, w: number, h: numb
  * « 36 – 36 sc » et « After row 35 – » : le parseur relit les cellules.
  */
 export function pageLines(pieces: TextPiece[]): string[] {
+  return pageRows(pieces).map((r) => r.text)
+}
+
+/** Ligne d'une page et le rectangle qu'elle occupe (unités du PDF, origine en bas à gauche). */
+export interface PageRow { text: string, x0: number, y0: number, x1: number, y1: number }
+
+function pageRows(pieces: TextPiece[]): PageRow[] {
   const rows: { y: number, h: number, parts: TextPiece[] }[] = []
   for (const p of pieces) {
     if (!p.s) continue
@@ -26,11 +33,12 @@ export function pageLines(pieces: TextPiece[]): string[] {
     row.parts.push(p)
   }
   rows.sort((a, b) => b.y - a.y)
-  const out: string[] = []
+  const out: PageRow[] = []
   for (const row of rows) {
     const parts = row.parts.sort((a, b) => a.x - b.x)
     let cur = ''
     let end = -Infinity
+    let start = Infinity
     for (const p of parts) {
       // pdf.js comble l'écart entre deux colonnes par une « espace » très large : elle ne compte pas
       if (!p.s.trim()) continue
@@ -42,11 +50,29 @@ export function pageLines(pieces: TextPiece[]): string[] {
         cur += ' '
       }
       cur += p.s
+      start = Math.min(start, p.x)
       end = p.x + (p.w || p.s.length * row.h * 0.5)
     }
-    if (cur.trim()) out.push(cur.trim())
+    if (cur.trim()) out.push({ text: cur.trim(), x0: start, x1: end, y0: row.y - row.h * 0.3, y1: row.y + row.h })
   }
   return out
+}
+
+/** Lignes d'une page avec leur place (fractions de la page, origine en haut à gauche) : l'écran de vérification les surligne. */
+export interface PageLayout { lines: { text: string, box: [number, number, number, number] }[] }
+
+/** Place des lignes d'une page, dans l'ordre de lecture ; `view` = [x0, y0, x1, y1] de la page. */
+export function pageLayout(pieces: TextPiece[], view: number[], ocr = false): PageLayout {
+  const [vx, vy, vx1, vy1] = view
+  const w = vx1 - vx || 1
+  const h = vy1 - vy || 1
+  const clamp = (v: number) => Math.min(1, Math.max(0, v))
+  return {
+    lines: readingBlocks(pieces, 0, ocr).flatMap(pageRows).map((r) => ({
+      text: ocr ? cleanOcrLine(r.text) : r.text,
+      box: [clamp((r.x0 - vx) / w), clamp((vy1 - r.y1) / h), clamp((r.x1 - vx) / w), clamp((vy1 - r.y0) / h)],
+    })),
+  }
 }
 
 /**
@@ -70,6 +96,8 @@ export interface PdfContent {
   photos: Blob[]
   /** aperçu des premières pages (JPEG, data:), pour vérifier les rangs reconnus */
   pages: string[]
+  /** place des lignes sur ces pages */
+  layout: PageLayout[]
   /** texte lu par reconnaissance de caractères (PDF scanné) : à vérifier de près */
   ocr: boolean
 }
@@ -217,20 +245,33 @@ async function openPdf(data: Blob) {
   return { pdfjs, doc }
 }
 
-/** Aperçu des premières pages d'un PDF (JPEG, data:). */
-export async function pdfPreviews(data: Blob): Promise<string[]> {
+interface TextItem { str?: string, transform: number[], width: number, height: number }
+
+function textPieces(items: unknown[]): TextPiece[] {
+  const pieces: TextPiece[] = []
+  for (const item of items as TextItem[]) {
+    if (!item.str) continue
+    pieces.push({ s: item.str, x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || Math.abs(item.transform[3]) })
+  }
+  return pieces
+}
+
+/** Aperçu des premières pages d'un PDF (JPEG, data:) et place de leurs lignes. */
+export async function pdfPreviews(data: Blob): Promise<{ pages: string[], layout: PageLayout[] }> {
   const { doc } = await openPdf(data)
-  const out: string[] = []
+  const pages: string[] = []
+  const layout: PageLayout[] = []
   try {
     for (let n = 1; n <= Math.min(doc.numPages, PREVIEW_PAGES); n++) {
       const page = await doc.getPage(n)
-      out.push(await previewOf(page as unknown as PdfPage))
+      pages.push(await previewOf(page as unknown as PdfPage))
+      layout.push(pageLayout(textPieces((await page.getTextContent()).items), page.view))
       page.cleanup()
     }
   } finally {
     await doc.destroy()
   }
-  return out
+  return { pages, layout }
 }
 
 async function previewOf(page: PdfPage): Promise<string> {
@@ -247,17 +288,14 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
   let metaTitle: string | null = null
   let ocr = false
   const ocrPages = new Set<number>()
+  const views: number[][] = []
   try {
     metaTitle = ((await doc.getMetadata().catch(() => null))?.info as { Title?: string } | undefined)?.Title ?? null
     for (let n = 1; n <= Math.min(doc.numPages, MAX_PAGES); n++) {
       const page = await doc.getPage(n)
-      const content = await page.getTextContent()
-      const pieces: TextPiece[] = []
-      for (const item of content.items) {
-        if (!('str' in item) || !item.str) continue
-        pieces.push({ s: item.str, x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || Math.abs(item.transform[3]) })
-      }
+      const pieces = textPieces((await page.getTextContent()).items)
       pages.push(pieces)
+      views.push(page.view)
       if (n <= PREVIEW_PAGES) {
         try {
           previews.push(await previewOf(page as unknown as PdfPage))
@@ -328,7 +366,9 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
           const page = await doc.getPage(i + 1)
           const canvas = await renderPage(page as unknown as PdfPage, OCR_SCALE)
           page.cleanup()
-          pages[i] = [...before.get(i)!, ...await engine.read(canvas, OCR_SCALE)]
+          // l'OCR compte depuis le coin de la page, le texte du PDF depuis l'origine de la page
+          const [vx, vy] = page.view
+          pages[i] = [...before.get(i)!, ...(await engine.read(canvas, OCR_SCALE)).map((p) => ({ ...p, x: p.x + vx, y: p.y + vy }))]
           ocrPages.add(i)
           canvas.width = canvas.height = 0
           if (decided) continue
@@ -352,7 +392,8 @@ export async function extractPdf(data: Blob, fileName?: string | null, options: 
   // titre lu sur la page 1 sans les en-têtes répétés
   // un scan pleine page n'est pas une photo de l'ouvrage
   const kept = photos.filter((p) => !(ocr && p.full && textChars(pages[p.page - 1]) >= SCANNED_CHARS)).map((p) => p.blob)
-  return { text: piecesToText(pages, ocrPages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr }
+  return { text: piecesToText(pages, ocrPages), title: pdfTitle(metaTitle, removeRunningPieces(pages)[0] ?? [], fileName), photos: kept, pages: previews, ocr,
+    layout: previews.map((_, i) => pageLayout(pages[i] ?? [], views[i] ?? [0, 0, 595, 842], ocrPages.has(i))) }
 }
 
 /** Texte seul d'un PDF. */

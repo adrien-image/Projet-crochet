@@ -7,7 +7,8 @@ import { outlineText, parsePattern } from '../src/domain/parser'
 import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
 import { patternLanguage } from '../src/domain/language'
-import { cleanOcrLine, ocrLabels, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
+import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
+import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
 
 const ball = 'BALLE\nR1 : 6 ms dans un anneau magique (6)\nR2 : 6 aug (12)\nR3 : *1 ms, aug* x6 (18)\nR4-R6 : 18 ms (18)\nR7 : *1 ms, dim* x6 (12)\nR8 : 6 dim (6)'
 
@@ -117,4 +118,22 @@ test('langue d\'un patron d\'après son vocabulaire (OCR)', () => {
   expect(patternLanguage('CABEÇA\nCarreira 1: 6 pbx no anel mágico (6)\nCarreira 2: 6 aum (12)\nCarreira 3: (1 pbx, aum) 6 vezes (18)')).toBe('por')
   expect(patternLanguage('HOOFD\nToer 1: 6 vaste in een magische ring (6)\nToer 2: 6 meerd (12)\nToer 3: (1 vaste, meerd) 6 keer (18)')).toBe('nld')
   expect(patternLanguage('Bonjour')).toBeNull()
+})
+
+test('vérification : une ligne retrouvée sur sa page, même nettoyée', () => {
+  const pieces: TextPiece[] = [
+    { s: 'BODY', x: 50, y: 760, w: 40, h: 12 },
+    { s: 'R1: 6 sc in a magic ring (6)', x: 50, y: 740, w: 200, h: 12 },
+    { s: 'R2: 6 inc (12)', x: 50, y: 720, w: 100, h: 12 },
+    { s: 'HEAD', x: 50, y: 400, w: 40, h: 12 },
+    { s: 'R1: 6 sc in a magic ring (6)', x: 50, y: 380, w: 200, h: 12 },
+  ]
+  const layout = [pageLayout(pieces, [0, 0, 595, 842])]
+  const second = findOnPages('R1: 6 sc in a magic ring (6)', layout, 1)!
+  expect(second.page).toBe(0)
+  expect(second.box[1]).toBeCloseTo((842 - 392) / 842, 2)
+  // ligne corrigée à la main : la plus ressemblante
+  expect(findOnPages('R2: 6 inc (12) — stuff', layout)?.box[1]).toBeCloseTo((842 - 732) / 842, 2)
+  expect(findOnPages('Something else entirely', layout)).toBeNull()
+  expect(occurrenceOf(['a', 'R1: x', 'b', 'R1: x'], 3)).toBe(1)
 })

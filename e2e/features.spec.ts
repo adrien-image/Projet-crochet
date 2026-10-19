@@ -225,6 +225,9 @@ test('PDF : vérification de l\'import, pages à côté des rangs, ligne corrig�
   const review = page.getByRole('dialog', { name: 'Vérifier l\'import' })
   await expect(review.getByRole('img', { name: 'Page 1' })).toBeVisible()
   await expect(review.locator('.review-line.round')).toHaveCount(4)
+  // la ligne en cours est surlignée sur la page du PDF
+  await review.locator('.review-line.round').nth(2).locator('input').focus()
+  await expect(review.locator('.review-mark')).toBeVisible()
   const flagged = review.locator('.review-line.flagged')
   await expect(flagged).toHaveCount(1)
   await expect(flagged).toContainText('18 mailles calculées, 20 annoncées')

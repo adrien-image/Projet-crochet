@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, ArrowDown, Check } from 'lucide-react'
 import type { Notation, Round } from '../../domain/types'
@@ -6,6 +6,8 @@ import { parsePattern, patternStats } from '../../domain/parser'
 import { t, tn } from '../../i18n'
 import { Dialog } from '../../ui/Dialog'
 import { textLines } from './textLines'
+import { findOnPages, occurrenceOf, type PageSpot } from './pageMatch'
+import type { PageLayout } from '../../storage/pdfText'
 
 interface Props {
   text: string
@@ -13,6 +15,8 @@ interface Props {
   size: number
   /** aperçu des pages du PDF (data:) ; vide pour un patron saisi à la main */
   pages: string[]
+  /** place des lignes sur ces pages : la ligne en cours est surlignée sur sa page */
+  layout?: PageLayout[]
   /** texte lu par OCR : chaque ligne est suspecte */
   ocr?: boolean
   onChange: (text: string) => void
@@ -30,9 +34,16 @@ function roundIssue(r: Round): string | null {
  * Vérification d'un import : les pages du PDF à gauche, les lignes reconnues à droite (rangs, titres
  * de pièces, texte), les rangs dont le compte ne tombe pas juste signalés, chaque ligne modifiable.
  */
-export function ImportReview({ text, notation, size, pages, ocr, onChange, onClose }: Props) {
+export function ImportReview({ text, notation, size, pages, layout = [], ocr, onChange, onClose }: Props) {
   const [onlyIssues, setOnlyIssues] = useState(false)
+  const [spot, setSpot] = useState<PageSpot | null>(null)
   const list = useRef<HTMLDivElement>(null)
+  const mark = useRef<HTMLDivElement>(null)
+  useEffect(() => { mark.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }, [spot])
+  const locate = (index: number) => {
+    const all = text.split(/\r?\n/)
+    setSpot(findOnPages(all[index], layout, occurrenceOf(all, index)))
+  }
   const rounds = useMemo(() => parsePattern(text, { notation, size }), [text, notation, size])
   const stats = patternStats(rounds)
   const lines = useMemo(() => textLines(text, rounds).map((l, i) => {
@@ -61,7 +72,17 @@ export function ImportReview({ text, notation, size, pages, ocr, onChange, onClo
       <div className={`review ${pages.length ? '' : 'no-pages'}`}>
         {pages.length > 0 && (
           <div className="review-pages" aria-label={t('Pages du PDF')}>
-            {pages.map((src, i) => <img key={i} src={src} alt={t('Page {n}', { n: i + 1 })} />)}
+            {pages.map((src, i) => (
+              <div key={i} className="review-page">
+                <img src={src} alt={t('Page {n}', { n: i + 1 })} />
+                {spot?.page === i && (
+                  <div ref={mark} className="review-mark" aria-hidden="true" style={{
+                    left: `${spot.box[0] * 100}%`, top: `${spot.box[1] * 100}%`,
+                    width: `${(spot.box[2] - spot.box[0]) * 100}%`, height: `${(spot.box[3] - spot.box[1]) * 100}%`,
+                  }} />
+                )}
+              </div>
+            ))}
           </div>
         )}
         <div className="review-side">
@@ -91,7 +112,7 @@ export function ImportReview({ text, notation, size, pages, ocr, onChange, onClo
                     {l.rounds && !l.issues.length && <span className="review-count"> · {l.rounds[l.rounds.length - 1].count}</span>}
                   </span>
                   <input className="input mono" value={l.line} aria-label={t('Ligne {n}', { n: l.index + 1 })}
-                    onChange={(e) => edit(l.index, e.target.value)} />
+                    onChange={(e) => edit(l.index, e.target.value)} onFocus={() => locate(l.index)} />
                   {l.issues.map((issue) => <span key={issue} className="review-issue"><AlertTriangle size={13} aria-hidden="true" /> {issue.replace(/^⚠\s*/, '')}</span>)}
                 </div>
               )
