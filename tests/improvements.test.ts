@@ -8,6 +8,7 @@ import { textLines } from '../src/features/pattern/textLines'
 import { buildModel, modelExtent } from '../src/render3d/model'
 import { patternLanguage } from '../src/domain/language'
 import { voiceCommands } from '../src/domain/voice'
+import { patternMarkdown } from '../src/features/pattern/markdown'
 import { cleanOcrLine, ocrLabels, pageLayout, piecesToText, readingBlocks, type TextPiece } from '../src/storage/pdfText'
 import { findOnPages, occurrenceOf } from '../src/features/pattern/pageMatch'
 import { lineAt, nextRoundPrefix, suggestions, wordBefore } from '../src/features/pattern/typingHelp'
@@ -165,4 +166,18 @@ test('aide à la saisie : mot en cours, abréviations, rang suivant', () => {
   expect(nextRoundPrefix(bare, 3, parsePattern(bare))).toBe('3 – ')
   expect(nextRoundPrefix('Rien', 0, [])).toBeNull()
   expect(lineAt('a\nb\nc', 3)).toBe(1)
+})
+
+test('export Markdown : titre, fils, étapes, rangs cochés, notes', () => {
+  const p = normalizePattern({ name: 'Balle *rayée*', hook: '3 mm', yarn: 'coton rose', tags: ['cadeau'], text: ball, checklist: [{ id: 'a', text: 'Broder les yeux', done: true }] })
+  const rounds = parsePattern(p.text)
+  const md = patternMarkdown({ ...p, roundsDone: [rounds[0].key], roundNotes: { [rounds[1].key]: { text: 'serrer', photoId: null, photoThumb: null } } })
+  expect(md).toMatch(/^# Balle \\\*rayée\\\*\n/)
+  expect(md).toContain('- **Crochet** : 3 mm')
+  expect(md).toContain('## Fils à prévoir')
+  expect(md).toContain('- [x] Broder les yeux')
+  expect(md).toContain('### BALLE')
+  expect(md).toContain('- [x] R1 : 6 ms dans un anneau magique (6)')
+  expect(md).toContain('- [ ] R2 : 6 aug (12) — *serrer*')
+  expect(md).toContain('- [ ] R4-R6 : 18 ms (18)')
 })

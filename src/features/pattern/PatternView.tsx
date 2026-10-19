@@ -23,7 +23,7 @@ const TABS: { id: PatternTab, label: string, icon: typeof FileText }[] = [
   { id: '3d', label: '3D', icon: Box },
 ]
 
-export type ShareKind = 'link' | 'file' | 'native'
+export type ShareKind = 'link' | 'print' | 'file' | 'markdown' | 'native'
 
 interface Props {
   pattern: Pattern
@@ -80,7 +80,9 @@ export function PatternView(props: Props) {
             <Menu label={t('Plus d\'actions')} icon={<Ellipsis size={20} />} items={[
               ...(canShare ? [{ label: t('Partager…'), icon: <Share2 size={16} />, onSelect: () => props.onShare('native') }] : []),
               { label: t('Copier le lien de partage'), icon: <Link2 size={16} />, onSelect: () => props.onShare('link') },
+              { label: t('Copier un lien imprimable'), icon: <Link2 size={16} />, onSelect: () => props.onShare('print') },
               { label: t('Télécharger le patron (fichier)'), icon: <Download size={16} />, onSelect: () => props.onShare('file') },
+              { label: t('Exporter en texte (Markdown)'), icon: <FileText size={16} />, onSelect: () => props.onShare('markdown') },
               { label: t('Imprimer le patron (ou PDF)'), icon: <Printer size={16} />, onSelect: () => setPrinting(true) },
               { label: t('Dupliquer le patron…'), icon: <Copy size={16} />, onSelect: props.onDuplicate },
               { label: t('Supprimer le patron'), icon: <Trash2 size={16} />, onSelect: props.onDelete, danger: true },

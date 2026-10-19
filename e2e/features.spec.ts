@@ -100,6 +100,33 @@ test('partage : lien copié puis ouvert, copie ajoutée sans la progression', as
   await expect(page.locator('.card')).toHaveCount(4)
 })
 
+test('partage : lien imprimable et export Markdown', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(() => { window.print = () => { (window as unknown as { printed: number }).printed = ((window as unknown as { printed?: number }).printed ?? 0) + 1 } })
+  await home(page)
+  await openMouse(page)
+  await page.getByRole('button', { name: "Plus d'actions" }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Exporter en texte (Markdown)' }).click()])
+  expect(download.suggestedFilename()).toMatch(/\.md$/)
+  const md = (await import('node:fs')).readFileSync(await download.path(), 'utf8')
+  expect(md).toMatch(/^# Souris/)
+  expect(md).toContain('- [x] ')
+
+  await page.getByRole('button', { name: "Plus d'actions" }).click()
+  await page.getByRole('menuitem', { name: 'Copier un lien imprimable' }).click()
+  await expect(page.locator('.toast')).toContainText('fiche imprimable')
+  const url = await page.evaluate(() => navigator.clipboard.readText())
+  expect(url).toMatch(/#\/partage\/[A-Za-z0-9_-]+\/imprimer$/)
+  const other = await context.newPage()
+  await other.addInitScript(() => { window.print = () => { (window as unknown as { printed: number }).printed = 1 } })
+  await other.goto(url)
+  await other.waitForFunction(() => (window as unknown as { printed?: number }).printed === 1)
+  await expect(other.locator('.print-sheet h1')).toHaveText(/Souris/)
+  // rien n'est ajouté sans le demander ; le dialogue propose encore d'ajouter ou d'imprimer
+  await expect(other.getByRole('dialog', { name: 'Patron partagé' }).getByRole('button', { name: 'Imprimer' })).toBeVisible()
+  expect(await other.evaluate(() => JSON.parse(localStorage.getItem('crochet.patterns.v1') ?? '[]').length)).toBe(3)
+})
+
 test('partage : lien abîmé', async ({ page }) => {
   await page.goto('./#/partage/zpasunvraicode')
   await expect(page.locator('.toast')).toContainText('invalide')
