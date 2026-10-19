@@ -9,6 +9,8 @@ export interface Round {
   number: number
   /** ligne d'origine du patron */
   text: string
+  /** numéro de cette ligne dans le texte (0 = première) */
+  line: number
   section: string | null
   /** index de la pièce (une section qui « suit » la précédente garde son index) */
   piece: number

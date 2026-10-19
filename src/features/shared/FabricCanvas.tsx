@@ -30,7 +30,9 @@ export function FabricCanvas({ rounds, color, done, activeKey, showProgress, fla
   useEffect(() => {
     const c = canvas.current
     if (!c || !layout) return
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    // les navigateurs refusent les canvas trop grands (32 767 px de côté, ~16 Mpx sur iOS) : une longue
+    // pièce plate (écharpe de 500 rangs) est dessinée moins finement plutôt que pas du tout
+    const dpr = Math.max(0.25, Math.min(window.devicePixelRatio || 1, 2, 16000 / layout.height, 16000 / layout.width, Math.sqrt(16e6 / (layout.width * layout.height))))
     c.width = Math.round(layout.width * dpr)
     c.height = Math.round(layout.height * dpr)
     c.style.width = `${layout.width}px`

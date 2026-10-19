@@ -25,10 +25,18 @@ fonctionne hors connexion.
 - **PDF** : le texte d'un PDF joint est extrait automatiquement dans le patron (pdf.js, chargé à la demande),
   dans l'ordre de lecture même en plusieurs colonnes, sans les en-têtes / pieds de page répétés ; nom
   (métadonnées, grand titre ou nom du fichier), crochet et fil pré-remplis ; **les photos de l'ouvrage
-  sont importées** (couverture + galerie, sans les fonds de page ni les logos)
+  sont importées** (couverture + galerie, sans les fonds de page ni les logos) ; **PDF scannés lus par
+  OCR** (Tesseract.js, français et anglais, servi par l'application et chargé seulement pour un scan) ;
+  **écran de vérification** : les pages du PDF à côté des lignes reconnues, rangs dont le compte ne
+  tombe pas juste signalés, chaque ligne corrigeable sur place
 - **Fils à prévoir** : pour chaque couleur, son nom dans le patron, les pièces concernées, la longueur
   (marge comprise) et le poids ; épaisseur de fil conseillée d'après le crochet (catégories 1 à 6) et
-  matière (coton, laine, chenille…)
+  matière (coton, laine, chenille…) ; une couleur que le patron ne précise pas est marquée
+  « supposée », avec un sélecteur de couleur par pièce
+- **Taille et crochet** : taille finale (annoncée par le patron, ou estimée d'après les mailles) et ce
+  qu'elle devient, avec le fil et son épaisseur, si l'on change de crochet
+- **Fiche imprimable** (ou PDF via le navigateur) : photos, matériel, fils à prévoir, étapes, rangs à
+  cocher avec leurs notes, diagrammes de chaque pièce
 - **Partage** : lien autonome (le patron compressé dans l'adresse, sans la progression ni les notes)
   ou fichier `.crochet.json`
 - **Dupliquer** un patron pour le refaire (de zéro) ou garder une version en cours (avec la progression)
@@ -59,6 +67,10 @@ Chaîner 30 ml.
 Broder le nez rose, coudre deux yeux noirs.
 ```
 
+- Langues : abréviations et mots courants en français, anglais, espagnol (`pb`, `aum`, `dism`, `vuelta`),
+  portugais (`pbx`), allemand (`fM`, `zun`, `abn`, `Runde`), italien (`mb`, `aum`, `dim`, `giro`) et
+  néerlandais (`v`, `meerd`, `mind`, `toer`) ; **tableaux** `Rang | Instructions | Mailles` (cellules
+  séparées par des tabulations, des `|` ou, dans un PDF, par leur position)
 - Préfixes : `R`, `Rang`, `Tour`, `Rnd`, `Round`, `Row` ; plages `R4-R6`, `Rangs 4 à 6` ; ou rangs
   numérotés sans préfixe, courants dans les PDF : `1 – 6 sc into a magic ring (6)`, `4 to 7 – 18 sc`,
   `18 and 19 – 18 sc (2 rows) – stuff the head`
@@ -98,7 +110,8 @@ Déploiement automatique sur GitHub Pages à chaque push sur `main` ; les pull r
 ## Pile technique
 
 React 19, TypeScript strict, Vite 8, three.js (chargé à la demande), lucide-react, Vitest, Playwright,
-oxlint, pdf.js (chargé à la demande). Données dans localStorage (patrons, préférences) et IndexedDB
+oxlint, pdf.js et Tesseract.js (chargés à la demande ; le moteur OCR et ses langues sont copiés dans
+`dist/ocr/` au build et ne sont pas mis en cache à l'installation). Données dans localStorage (patrons, préférences) et IndexedDB
 (photos, fichiers, lien vers le fichier de synchronisation).
 
 Les tests e2e comparent aussi les rendus tissu et 3D à des images de référence
@@ -131,5 +144,6 @@ tests/         tests unitaires      e2e/   tests Playwright      docs/REVIEW.md 
 - L'assemblage 3D est une estimation à partir des noms de pièces (corrigeable à la main) ; les pièces
   non reconnues sont posées à côté
 - Mailles dans les arceaux comptées sans contrôle ; motifs jacquard (plusieurs couleurs dans un même
-  rang) non représentés ; un PDF scanné (image) ne contient pas de texte à extraire
+  rang) non représentés ; l'OCR d'un scan est à relire (écran de vérification), surtout pour les
+  pages manuscrites ou de mauvaise qualité
 - L'estimation du fil est un ordre de grandeur (± 20 %), qui dépend de la tension de chacun

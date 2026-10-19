@@ -67,13 +67,28 @@ export async function readSyncFile(handle: Handle): Promise<SyncData | null> {
   }
 }
 
+/** couvertures et fichiers joints déjà encodés en data: (≈ 40 Mo au plus) */
+const encoded = new Map<string, string>()
+const MAX_ENCODED = 40_000_000
+/** contenu du dernier fichier écrit (hors date), pour ne pas réécrire un fichier identique */
+let lastWritten: string | null = null
+
 export async function writeSyncFile(handle: Handle, patterns: Pattern[], deleted: Record<string, string>): Promise<void> {
-  // réécrit à chaque modification : sans les photos de galerie et de rang (miniatures seulement)
-  const backup = JSON.parse(await (await exportBackup(patterns, { photos: false })).text())
-  const blob = new Blob([JSON.stringify({ ...backup, deleted, savedAt: new Date().toISOString() })], { type: 'application/json' })
+  // réécrit après chaque modification : sans les photos de galerie et de rang (miniatures seulement),
+  // et sans réencoder à chaque fois les couvertures et les PDF joints
+  const json = await (await exportBackup(patterns, { photos: false, cache: encoded })).text()
+  let size = 0
+  for (const [id, d] of [...encoded].reverse()) {
+    size += d.length
+    if (size > MAX_ENCODED) encoded.delete(id)
+  }
+  const body = JSON.stringify({ ...JSON.parse(json), deleted })
+  if (body === lastWritten) return
+  const blob = new Blob([JSON.stringify({ ...JSON.parse(body), savedAt: new Date().toISOString() })], { type: 'application/json' })
   const w = await handle.createWritable()
   await w.write(blob)
   await w.close()
+  lastWritten = body
 }
 
 /**

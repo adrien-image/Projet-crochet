@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Pattern } from './domain/types'
 import { parsePattern, parseOptions, remapRoundKeys } from './domain/parser'
 import { stopTimer } from './domain/time'
@@ -23,6 +23,9 @@ import { PatternForm, type PatternDraft } from './features/pattern/PatternForm'
 import { DuplicateDialog } from './features/pattern/DuplicateDialog'
 
 const fileSlug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'patron'
+/** délai pendant lequel une suppression reste annulable (durée du message) */
+const UNDO_WINDOW = 8000
+
 const shareCodeFromHash = () => window.location.hash.match(/^#\/partage\/([A-Za-z0-9_-]+)$/)?.[1] ?? null
 
 export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
@@ -100,27 +103,36 @@ export default function App({ onLang }: { onLang: (lang: Lang) => void }) {
     notify(t('Patron enregistré'))
   }
 
-  // suppression immédiate, annulable quelques secondes depuis le message
+  // suppression immédiate, annulable quelques secondes depuis le message ; plusieurs suppressions
+  // rapprochées restent toutes annulables (le message suivant ne fait pas oublier les précédentes)
+  const recentlyDeleted = useRef<{ pattern: Pattern, index: number, at: number }[]>([])
   const deletePattern = (id: string) => {
     const index = patterns.findIndex((x) => x.id === id)
     if (index < 0) return
     const removed = patterns[index]
+    const now = Date.now()
+    recentlyDeleted.current = [...recentlyDeleted.current.filter((d) => now - d.at < UNDO_WINDOW), { pattern: removed, index, at: now }]
     setPatterns((ps) => ps.filter((x) => x.id !== id))
     updateSettings((s) => ({ ...s, deleted: { ...s.deleted, [id]: new Date().toISOString() } }))
     if (route.patternId === id) navigate({ patternId: null, tab: 'patron' })
-    notify(t('« {name} » supprimé', { name: removed.name }), {
+    const batch = recentlyDeleted.current
+    notify(batch.length > 1 ? tn(batch.length, '{n} patron supprimé', '{n} patrons supprimés') : t('« {name} » supprimé', { name: removed.name }), {
       action: {
         label: t('Annuler'),
         run: () => {
+          recentlyDeleted.current = []
           updateSettings((s) => {
             const deleted = { ...s.deleted }
-            delete deleted[id]
+            for (const d of batch) delete deleted[d.pattern.id]
             return { ...s, deleted }
           })
           setPatterns((ps) => {
-            if (ps.some((x) => x.id === id)) return ps
             const next = [...ps]
-            next.splice(Math.min(index, next.length), 0, { ...removed, updatedAt: new Date().toISOString() })
+            // de la plus récente à la plus ancienne : chaque position a été notée sur la liste de l'époque
+            for (const d of [...batch].reverse()) {
+              if (next.some((x) => x.id === d.pattern.id)) continue
+              next.splice(Math.min(d.index, next.length), 0, { ...d.pattern, updatedAt: new Date().toISOString() })
+            }
             return next
           })
         },

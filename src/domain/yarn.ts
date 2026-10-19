@@ -29,6 +29,8 @@ export interface YarnColor {
   pieces: string[]
   /** nom lu dans le patron (« #8008 rock corey », « Bleu »), sinon null */
   name: string | null
+  /** couleur supposée pour toutes ses pièces (le patron ne la précise pas) */
+  guessed: boolean
 }
 
 export interface YarnEstimate {
@@ -45,11 +47,12 @@ export function estimateYarn(pattern: Pattern): YarnEstimate {
   const found = hookMm(pattern.hook) ?? hookMm(pattern.text)
   const hook = found ?? 4
   const cmPerUnit = CM_PER_SC_PER_MM * hook
-  const byColor = new Map<string, { meters: number, pieces: Set<string> }>()
-  const add = (color: string, units: number, label: string) => {
-    const e = byColor.get(color) ?? { meters: 0, pieces: new Set<string>() }
+  const byColor = new Map<string, { meters: number, pieces: Set<string>, guessed: boolean }>()
+  const add = (color: string, units: number, label: string, guessed = false) => {
+    const e = byColor.get(color) ?? { meters: 0, pieces: new Set<string>(), guessed: true }
     e.meters += units * cmPerUnit / 100
     e.pieces.add(label)
+    e.guessed &&= guessed
     byColor.set(color, e)
   }
   for (const piece of buildPieces(pattern)) {
@@ -58,14 +61,14 @@ export function estimateYarn(pattern: Pattern): YarnEstimate {
       const copyColor = piece.copyColors?.[c]
       for (const r of piece.rounds) {
         const units = r.stitches.reduce((n, s) => n + PER_STITCH[s], 0)
-        add(copyColor ?? r.color ?? piece.color, units, piece.label)
+        add(copyColor ?? r.color ?? piece.color, units, piece.label, !copyColor && !r.color && piece.colorGuessed)
       }
     }
   }
   for (const cord of buildCords(pattern)) add(cord.color, cord.length * PER_STITCH.ch * Math.max(1, cord.copies), cord.label)
   const sources = [pattern.yarn, pattern.text]
   const list = [...byColor.entries()]
-    .map(([color, e]) => ({ color, meters: e.meters, pieces: [...e.pieces], name: colorNameIn(color, sources) }))
+    .map(([color, e]) => ({ color, meters: e.meters, pieces: [...e.pieces], name: colorNameIn(color, sources), guessed: e.guessed }))
     .sort((a, b) => b.meters - a.meters)
   return { meters: list.reduce((n, x) => n + x.meters, 0), byColor: list, hook, assumedHook: found == null }
 }

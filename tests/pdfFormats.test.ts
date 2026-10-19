@@ -205,3 +205,26 @@ test('PDF : nom du patron (métadonnées, grand titre, nom du fichier)', () => {
   expect(pdfTitle(null, [piece('Little dragon - by Test Designer', 40, 800, 11)], null)).toBe('Little dragon')
   expect(pdfTitle(null, [], null)).toBeNull()
 })
+
+test('patrons en espagnol, portugais, allemand, italien et néerlandais', () => {
+  const samples: Record<string, string> = {
+    es: 'CABEZA\nV1: 6 pb en anillo mágico (6)\nV2: 6 aum (12)\nV3: (1 pb, 1 aum) x 6 (18)\nV4: 1 pb en cada punto (18)\nV5: (1 pb, 1 dism) 6 veces (12)',
+    pt: 'CABEÇA\nCarreira 1: 6 pb no anel mágico (6)\nCarreira 2: 6 aum (12)\nCarr 3: *1 pb, 1 aum* 6 vezes (18)\nCarr 4: 18 pb (18)',
+    de: 'KOPF\nRd. 1: 6 fM in den Fadenring (6)\nRd. 2: jede M verdoppeln (12)\nRd. 3: *1 fM, 1 zun* 6 mal (18)\nRd. 4: 18 fM (18)\nRd. 5: *1 fM, 1 abn* x6 (12)',
+    it: 'TESTA\nGiro 1: 6 mb nell\'anello magico (6)\nGiro 2: 6 aum (12)\nGiro 3: (1 mb, 1 aum) x6 (18)\nG4: 18 mb (18)',
+    nl: 'HOOFD\nToer 1: 6 vaste in een magische ring (6)\nToer 2: 6 meerd (12)\nT3: (1 vaste, 1 meerd) x6 (18)\nT4: 18 vaste (18)',
+  }
+  for (const [lang, text] of Object.entries(samples)) {
+    const rounds = parsePattern(text)
+    expect(rounds.length, lang).toBeGreaterThanOrEqual(4)
+    expect(rounds.every((r) => r.valid && r.fits !== false), lang).toBe(true)
+  }
+})
+
+test('rangs en tableau (PDF ou copié depuis un tableur)', () => {
+  const rounds = parsePattern('HEAD\nRound | Instructions | Stitch count\n1 | 6 sc in a magic ring | 6\n2 | inc in each st | 12\nRnd 3-4 | 12 sc | 12\nR5\t(sc, inc) x6\t18')
+  expect(rounds.map((r) => [r.label, r.count, r.expected])).toEqual([['R1', 6, 6], ['R2', 12, 12], ['R3', 12, 12], ['R4', 12, 12], ['R5', 18, 18]])
+  // une colonne de numéros de rang alignée sur les instructions : un tableau, lu ligne par ligne
+  const cells = [0, 1, 2, 3].flatMap((i) => [piece(String(i + 1), 40, 700 - i * 14), piece(`${6 * (i + 1)} sc around the ring`, 120, 700 - i * 14), piece(String(6 * (i + 1)), 360, 700 - i * 14)])
+  expect(readingBlocks(cells).length).toBe(1)
+})

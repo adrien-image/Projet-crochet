@@ -9,6 +9,7 @@ const KV = 'kv'
 let dbPromise: Promise<IDBDatabase | null> | null = null
 const memory = new Map<string, Blob>()
 const urlCache = new Map<string, string>()
+const MAX_URLS = 120
 /** fichiers enregistrés pendant cette session : jamais supprimés par le ménage (ils ne sont peut-être pas encore rattachés à un patron) */
 const sessionIds = new Set<string>()
 
@@ -100,11 +101,22 @@ export async function getAsset(id: string): Promise<Blob | null> {
 export async function getAssetUrl(id: string | null | undefined): Promise<string | null> {
   if (!id) return null
   const cached = urlCache.get(id)
-  if (cached) return cached
+  if (cached) {
+    // récemment utilisée : passe en fin de file
+    urlCache.delete(id)
+    urlCache.set(id, cached)
+    return cached
+  }
   const blob = await getAsset(id)
   if (!blob) return null
   const url = URL.createObjectURL(new Blob([blob], { type: safeMimeType(blob.type) }))
   urlCache.set(id, url)
+  // mémoire bornée : les adresses les plus anciennes sont libérées (une image déjà affichée le reste)
+  while (urlCache.size > MAX_URLS) {
+    const [oldId, oldUrl] = urlCache.entries().next().value as [string, string]
+    URL.revokeObjectURL(oldUrl)
+    urlCache.delete(oldId)
+  }
   return url
 }
 

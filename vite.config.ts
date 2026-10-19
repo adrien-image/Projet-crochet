@@ -34,11 +34,34 @@ const csp = (): Plugin => ({
 // et une version qui change à chaque build : le navigateur installe la nouvelle version, l'ancienne
 // est libérée.
 const PUBLIC_FILES = ['manifest.webmanifest', 'favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png']
+// Lecture des PDF scannés (Tesseract.js) : worker, moteur WebAssembly et langues servis par
+// l'application, sous ocr/. Gros fichiers chargés seulement à la première lecture d'un scan : ils ne
+// sont pas mis en cache à l'installation.
+const OCR_FILES: Record<string, string> = {
+  'ocr/worker.min.js': 'node_modules/tesseract.js/dist/worker.min.js',
+  ...Object.fromEntries(['', '-simd', '-relaxedsimd'].map((v) => [`ocr/core/tesseract-core${v}-lstm.wasm.js`, `node_modules/tesseract.js-core/tesseract-core${v}-lstm.wasm.js`])),
+  ...Object.fromEntries(['eng', 'fra'].map((l) => [`ocr/lang/${l}.traineddata.gz`, `node_modules/@tesseract.js-data/${l}/4.0.0_best_int/${l}.traineddata.gz`])),
+}
+const ocrFiles = (base: string): Plugin => ({
+  name: 'ocr-files',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const file = OCR_FILES[(req.url ?? '').split('?')[0].replace(base, '')]
+      if (!file) return next()
+      res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : 'application/octet-stream')
+      res.end(readFileSync(file))
+    })
+  },
+  generateBundle() {
+    for (const [fileName, file] of Object.entries(OCR_FILES)) this.emitFile({ type: 'asset', fileName, source: readFileSync(file) })
+  },
+})
+
 const serviceWorker = (): Plugin => ({
   name: 'service-worker',
   apply: 'build',
   generateBundle(_, bundle) {
-    const files = [...Object.keys(bundle).filter((f) => f !== 'index.html' && !f.endsWith('.map')), ...PUBLIC_FILES].sort()
+    const files = [...Object.keys(bundle).filter((f) => f !== 'index.html' && !f.endsWith('.map') && !(f in OCR_FILES)), ...PUBLIC_FILES].sort()
     const version = createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 12)
     const source = readFileSync(new URL('./src/sw/sw.template.js', import.meta.url), 'utf8')
       .replace('__SW_VERSION__', version)
@@ -47,9 +70,11 @@ const serviceWorker = (): Plugin => ({
   },
 })
 
+const BASE = '/Projet-crochet/'
+
 export default defineConfig({
-  plugins: [react(), csp(), serviceWorker()],
-  base: '/Projet-crochet/',
+  plugins: [react(), csp(), ocrFiles(BASE), serviceWorker()],
+  base: BASE,
   build: {
     // three.js (≈575 ko) est isolé dans son propre fichier, chargé à la demande
     chunkSizeWarningLimit: 650,

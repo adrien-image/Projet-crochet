@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { CircleCheck, Circle, Paperclip, ListOrdered, StickyNote, Spool, Timer } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CircleCheck, Circle, Paperclip, ListOrdered, StickyNote, Spool, Timer, Ruler } from 'lucide-react'
 import type { Pattern } from '../../domain/types'
 import { roundsOf, patternProgress, percent } from '../../domain/progress'
-import { splitSections } from '../../domain/parser'
+import { textLines } from './textLines'
+import { materialLabel } from './yarnLabels'
 import { ballsFor, estimateYarn, formatMeters, yarnMaterial, yarnWeight, YARN_MARGIN } from '../../domain/yarn'
 import { colorName } from '../../domain/colors'
 import { formatDuration, lastWeekSeconds, totalSeconds } from '../../domain/time'
@@ -11,7 +12,9 @@ import { useTicker } from '../../hooks/useTicker'
 import { t, tn, getLang } from '../../i18n'
 import { ProgressBar } from '../../ui/Progress'
 import { Checklist } from './Checklist'
-import { setChecklist, setRoundsDone, type Update } from './actions'
+import { setChecklist, setPieceColor, setRoundsDone, type Update } from './actions'
+import { buildPieces } from '../../domain/pieces'
+import { estimateSize, HOOK_SIZES, resize } from '../../domain/size'
 import { TimerButton } from './PatternView'
 import { PhotoGallery } from './PhotoGallery'
 
@@ -36,20 +39,20 @@ function AttachedFile({ pattern }: { pattern: Pattern }) {
   )
 }
 
-function YarnCard({ pattern }: { pattern: Pattern }) {
+function YarnCard({ pattern, update }: { pattern: Pattern, update: Update }) {
   const est = useMemo(() => estimateYarn(pattern), [pattern])
+  const pieces = useMemo(() => buildPieces(pattern), [pattern])
   if (!est.meters) return null
   const lang = getLang()
   const weight = yarnWeight(est.hook)
   const material = yarnMaterial(`${pattern.yarn}\n${pattern.text}`)
-  const materials: Record<string, string> = { chenille: t('chenille / velours'), coton: t('coton'), laine: t('laine'), acrylique: t('acrylique'), mohair: t('mohair') }
   return (
     <section className="panel compact yarn-card">
       <h3><Spool size={16} /> {t('Fils à prévoir')}</h3>
       <p className="yarn-total">≈ {formatMeters(est.meters, lang)} <span className="muted sm">± {Math.round(YARN_MARGIN * 100)} %</span></p>
       <p className="yarn-type">
         <strong>{t('Épaisseur {c}', { c: weight.category })}</strong> · {weight.names}
-        {material && <> · {materials[material]}</>}
+        {material && <> · {materialLabel(material)}</>}
       </p>
       <ul className="yarn-list">
         {est.byColor.map((c) => {
@@ -59,7 +62,7 @@ function YarnCard({ pattern }: { pattern: Pattern }) {
             <li key={c.color}>
               <span className="dot" style={{ background: c.color }} aria-hidden="true" />
               <span className="yarn-name">
-                <strong>{c.name ?? (known ? t(known) : t('Fil'))}</strong>
+                <strong>{c.name ?? (known ? t(known) : t('Fil'))}{c.guessed && <span className="chip xs warn guess" title={t('Le patron ne précise pas cette couleur : vérifiez-la ci-dessous.')}>{t('supposée')}</span>}</strong>
                 <span className="muted sm">{c.pieces.join(', ')}</span>
               </span>
               <span className="yarn-amount">
@@ -70,12 +73,59 @@ function YarnCard({ pattern }: { pattern: Pattern }) {
           )
         })}
       </ul>
+      <details className="piece-colors" open={pieces.some((p) => p.colorGuessed)}>
+        <summary>{t('Couleur de chaque pièce')}</summary>
+        {pieces.map((p) => (
+          <label key={p.label} className="piece-color">
+            <input type="color" value={p.color} aria-label={t('Couleur : {p}', { p: p.label })}
+              onChange={(e) => update((x) => setPieceColor(x, p.label, e.target.value))} />
+            <span>{p.label}{p.copies > 1 ? ` × ${p.copies}` : ''}</span>
+            {p.colorGuessed && <span className="chip xs warn">{t('supposée')}</span>}
+            {pattern.pieceColors[p.label] && (
+              <button type="button" className="btn ghost sm" onClick={() => update((x) => setPieceColor(x, p.label, null))}>{t('Couleur du patron')}</button>
+            )}
+          </label>
+        ))}
+      </details>
       <p className="muted sm">
         {est.assumedHook
           ? t('Estimation pour un crochet de 4 mm (précisez la taille du crochet pour l\'affiner).')
           : t('Estimation d\'après les mailles du patron et un crochet de {h} mm, marge comprise.', { h: est.hook.toLocaleString(lang) })}
         {' '}{t('Pour un amigurumi, un fil de cette épaisseur se crochète serré avec ce crochet.')}
       </p>
+    </section>
+  )
+}
+
+/** Taille finale, et ce qu'elle devient avec un autre crochet (fil et épaisseur assortis). */
+function SizeCard({ pattern }: { pattern: Pattern }) {
+  const base = useMemo(() => estimateSize(pattern), [pattern])
+  const [hook, setHook] = useState<number | null>(null)
+  if (!base) return null
+  const lang = getLang()
+  const cm = (d: [number, number, number]) => d.map((x) => x.toLocaleString(lang, { maximumFractionDigits: 1 })).join(' × ')
+  const other = hook && hook !== base.hook ? resize(base, hook) : null
+  return (
+    <section className="panel compact size-card">
+      <h3><Ruler size={16} /> {t('Taille et crochet')}</h3>
+      <p className="size-main"><strong>≈ {cm(base.dims)} cm</strong></p>
+      <p className="muted sm">{base.stated ? t('Taille annoncée par le patron, crochet de {h} mm.', { h: base.hook.toLocaleString(lang) }) : t('Estimée d\'après les mailles, crochet de {h} mm.', { h: base.hook.toLocaleString(lang) })}</p>
+      <div className="field">
+        <label htmlFor="resize-hook">{t('Avec un autre crochet')}</label>
+        <select id="resize-hook" className="input" value={hook ?? base.hook} onChange={(e) => setHook(Number(e.target.value))}>
+          {[...new Set([...HOOK_SIZES, base.hook])].sort((a, b) => a - b).map((h) => (
+            <option key={h} value={h}>{h.toLocaleString(lang)} mm{h === base.hook ? ` (${t('patron')})` : ''}</option>
+          ))}
+        </select>
+      </div>
+      {other && (
+        <div className="resized" aria-live="polite">
+          <div className="stat-row"><span>{t('Taille')}</span><strong>≈ {cm(other.dims)} cm</strong></div>
+          <div className="stat-row"><span>{t('Fil')}</span><strong>≈ {formatMeters(other.meters * (1 + YARN_MARGIN), lang)}</strong></div>
+          <div className="stat-row"><span>{t('Épaisseur')}</span><strong>{other.weight.category} · {other.weight.names}</strong></div>
+          <p className="muted sm">{t('Même patron, mêmes rangs : chaque maille grandit avec le crochet et un fil plus épais.')}</p>
+        </div>
+      )}
     </section>
   )
 }
@@ -108,22 +158,7 @@ export function OverviewTab({ pattern, update, onOpenCounter }: Props) {
   const current = rounds.find((r) => !done.has(r.key))
 
   // le texte, ligne par ligne : les lignes de rang deviennent cochables
-  const sectionTitles = new Set([...splitSections(pattern.text).keys()].filter(Boolean))
-  const lines = (() => {
-    const byText = new Map<string, typeof rounds>()
-    for (const r of rounds) byText.set(r.text, [...(byText.get(r.text) ?? []), r])
-    const seen = new Map<string, number>()
-    return pattern.text.split(/\r?\n/).map((line) => {
-      const tr = line.trim()
-      const group = byText.get(tr)
-      if (!group) return { line, rounds: null }
-      // une même ligne peut apparaître dans plusieurs sections (lobe gauche / droit)
-      const n = seen.get(tr) ?? 0
-      seen.set(tr, n + 1)
-      const sizes = group.length / Math.max(1, pattern.text.split(/\r?\n/).filter((l) => l.trim() === tr).length)
-      return { line, rounds: group.slice(n * sizes, (n + 1) * sizes) }
-    })
-  })()
+  const lines = textLines(pattern.text, rounds)
 
   return (
     <div className="overview">
@@ -138,12 +173,8 @@ export function OverviewTab({ pattern, update, onOpenCounter }: Props) {
             <div className="instructions">
               {lines.map((l, i) => {
                 if (!l.rounds) {
-                  const tr = l.line.trim()
-                  if (!tr) return <div key={i} className="ins-gap" />
-                  const title = tr.replace(/^#+\s*/, '').replace(/\s*:\s*$/, '').replace(/[#=*_\s]+$/, '')
-                  return sectionTitles.has(title) || sectionTitles.has(tr)
-                    ? <h4 key={i} className="ins-section">{title}</h4>
-                    : <p key={i} className="ins-text">{l.line}</p>
+                  if (!l.line.trim()) return <div key={i} className="ins-gap" />
+                  return l.title ? <h4 key={i} className="ins-section">{l.title}</h4> : <p key={i} className="ins-text">{l.line}</p>
                 }
                 const keys = l.rounds.map((r) => r.key)
                 const all = keys.every((k) => done.has(k))
@@ -192,7 +223,8 @@ export function OverviewTab({ pattern, update, onOpenCounter }: Props) {
           )}
         </section>
         <TimeCard pattern={pattern} update={update} />
-        <YarnCard pattern={pattern} />
+        <YarnCard pattern={pattern} update={update} />
+        <SizeCard pattern={pattern} />
         {(pattern.hook || pattern.yarn) && (
           <section className="panel compact">
             <h3>{t('Matériel')}</h3>

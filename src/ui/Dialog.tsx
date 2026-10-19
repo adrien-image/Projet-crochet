@@ -8,7 +8,7 @@ interface Props {
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
   /** formulaire : la boîte entière est un <form> */
   onSubmit?: () => void
 }

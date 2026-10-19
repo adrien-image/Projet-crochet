@@ -61,3 +61,20 @@ test('hors connexion : l\'aperçu 3D fonctionne aussi (fichiers chargés à la d
   await expect(page.locator('canvas.viewer3d-canvas')).toBeVisible({ timeout: 15_000 })
   await context.setOffline(false)
 })
+
+test('suppressions rapprochées : « Annuler » les restaure toutes', async ({ page }) => {
+  await page.goto('./')
+  const titles = () => page.locator('.card-title').allTextContents()
+  await expect(page.locator('.card')).toHaveCount(3)
+  const before = await titles()
+  for (const name of ['Abeille', 'Souris']) {
+    await page.locator('.card', { hasText: name }).getByRole('button', { name: /Actions pour/ }).click()
+    await page.getByRole('menuitem', { name: 'Supprimer' }).click()
+  }
+  await expect(page.locator('.card')).toHaveCount(1)
+  await expect(page.locator('.toast')).toContainText('2 patrons supprimés')
+  await page.locator('.toast').getByRole('button', { name: 'Annuler' }).click()
+  await expect(page.locator('.card')).toHaveCount(3)
+  // (le tri « modifiés récemment » remonte les patrons restaurés)
+  expect((await titles()).sort()).toEqual(before.sort())
+})
